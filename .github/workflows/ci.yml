@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version: ['8.2', '8.3', '8.4']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkout local package dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ref="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
+          automata_repo="https://github.com/chatflowphp/automata.git"
+          core_repo="https://github.com/chatflowphp/core.git"
+
+          if git ls-remote --exit-code --heads "$automata_repo" "$ref" >/dev/null 2>&1; then
+            git clone --depth=1 --branch "$ref" "$automata_repo" ../chatflow-automata
+          else
+            git clone --depth=1 "$automata_repo" ../chatflow-automata
+          fi
+
+          if git ls-remote --exit-code --heads "$core_repo" "$ref" >/dev/null 2>&1; then
+            git clone --depth=1 --branch "$ref" "$core_repo" ../chatflow-core
+          else
+            git clone --depth=1 "$core_repo" ../chatflow-core
+          fi
+
+          composer config repositories.chatflowphp-automata '{"type":"path","url":"../chatflow-automata","options":{"symlink":false,"versions":{"chatflowphp/automata":"1.0.0"}}}'
+          composer config repositories.chatflowphp-core '{"type":"path","url":"../chatflow-core","options":{"symlink":false,"versions":{"chatflowphp/core":"1.0.0"}}}'
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          coverage: none
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: ${{ runner.os }}-php-${{ matrix.php-version }}-${{ hashFiles('composer.json') }}
+          restore-keys: ${{ runner.os }}-php-${{ matrix.php-version }}-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Static analysis and tests
+        run: composer check
+
+      - name: Coding standards
+        run: composer cs-check
