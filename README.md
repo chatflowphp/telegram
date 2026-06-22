@@ -11,6 +11,13 @@ It supports webhook and polling execution, commands, callback actions, smart ren
 
 Full package documentation starts at [docs/index.md](docs/index.md). Use [docs/ai-index.md](docs/ai-index.md) as compact context for AI-assisted bot implementation tasks.
 
+## Start Here
+
+- Build your first bot: [docs/getting-started.md](docs/getting-started.md)
+- Design a production bot: [docs/development/index.md](docs/development/index.md)
+- Browse API and runtime reference: [docs/index.md](docs/index.md)
+- AI implementation context: [docs/ai-index.md](docs/ai-index.md)
+
 ## Quick Start
 
 ```php
@@ -35,6 +42,8 @@ $bot->prefix('menu:', static function (Context $ctx): void {
 
 $bot->runWebhook();
 ```
+
+For a runnable version of this pattern, see [examples/StarterBot](examples/StarterBot).
 
 ## Mapping
 
@@ -88,9 +97,10 @@ The default file-backed callback payload store keeps long callback payloads for 
 
 Telegram `render()` is intentionally best-effort: the adapter tries to edit the current message, then falls back to delete/send or send-only when Telegram rejects the edit. These fallbacks are logged through the `Bot` logger but do not fail the flow unless final delivery also fails.
 
-The MiniShop example is Telegram-specific and demonstrates commands, inline callback buttons, smart edit-or-send rendering, media replies, scenes, validation and sessions.
+`StarterBot` is the minimal runnable onboarding example. `MiniShop` is the advanced Telegram-specific example with commands, inline callback buttons, smart edit-or-send rendering, media replies, scenes, validation and sessions.
 
 ```sh
+php examples/StarterBot/mock.php
 php examples/MiniShop/mock.php
 ```
 
@@ -109,17 +119,31 @@ Set `CHATFLOW_RUNTIME_LOG=/path/to/runtime.jsonl` to override the log path.
 
 ## Documentation
 
-- [Installation](docs/installation.md)
-- [Bot Lifecycle](docs/bot-lifecycle.md)
+### First Bot
+
+- [Getting Started](docs/getting-started.md)
+- [Examples](docs/examples.md)
+- [Testing](docs/testing.md)
+
+### Production Workflow
+
+- [Telegram Bot Development Kit](docs/development/index.md)
+- [Bot Development Process](docs/development/development-process.md)
+- [Bot Spec Template](docs/development/bot-spec-template.md)
+- [Spec Review Checklist](docs/development/spec-review-checklist.md)
+- [Implementation Blueprint Template](docs/development/implementation-blueprint-template.md)
+- [Acceptance Testing Guide](docs/development/acceptance-testing-guide.md)
+- [AI Development Workflow](docs/development/ai-development-workflow.md)
+
+### API Reference
+
 - [Commands](docs/commands.md)
 - [Callbacks](docs/callbacks.md)
 - [Rendering](docs/rendering.md)
 - [Telegram Context](docs/telegram-context.md)
-- [Telegram Events](docs/telegram-events.md)
 - [Scenes And Dialogs](docs/scenes-dialogs.md)
 - [Media And Files](docs/media-files.md)
-- [Middleware](docs/middleware.md)
-- [Testing](docs/testing.md)
+- [Webhook And Polling](docs/webhook-polling.md)
 - [AI Index](docs/ai-index.md)
 
 ## License

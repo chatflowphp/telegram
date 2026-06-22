@@ -2,6 +2,16 @@
 
 Telegram output is described with core `View` objects and delivered by the Telegram adapter.
 
+If you are new to the package, start with [Getting Started](getting-started.md) and come back here when you need the output model in more detail.
+
+## Choosing `reply()`, `render()` Or `ack()`
+
+| Method | Use When | Telegram Result |
+| --- | --- | --- |
+| `reply()` | You want a new message in the chat | `sendMessage`, `sendPhoto`, `sendDocument`, or another send endpoint |
+| `render()` | You are updating the current logical screen | Try edit first, then fall back to delete/send or send |
+| `ack()` | You want lightweight feedback for a callback button | `answerCallbackQuery()` when available, otherwise a normal message if text was provided |
+
 ## Reply
 
 `reply()` sends a new Telegram message:

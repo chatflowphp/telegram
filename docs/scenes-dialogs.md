@@ -2,6 +2,10 @@
 
 Scenes are implemented in core with `ChatFlow\FSM\BaseScene` and work in Telegram through `Bot::registerScene()`.
 
+If you are new to the package, complete [Getting Started](getting-started.md) first.
+
+For Telegram bot authors, the important rule is simple: scene state is session-backed, scenes require storage, and you do not need lower-level FSM internals to build dialogs.
+
 ## Register Scenes
 
 ```php

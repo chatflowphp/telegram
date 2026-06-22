@@ -63,5 +63,6 @@ For package development in this workspace:
 ```sh
 composer install
 composer check
+php examples/StarterBot/mock.php
 php examples/MiniShop/mock.php
 ```

@@ -2,6 +2,8 @@
 
 Telegram text messages are normalized into core text events.
 
+If you are new to the package, start with [Getting Started](getting-started.md) and come back here when you need the route catalog.
+
 ## Command Sugar
 
 `Bot::command()` is Telegram-friendly sugar over core `onCommand()`:

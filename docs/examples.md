@@ -1,8 +1,52 @@
 # Examples
 
+If you are new to the package, finish [Getting Started](getting-started.md) first.
+
+## StarterBot
+
+`StarterBot` is the minimal runnable onboarding example:
+
+```text
+examples/StarterBot
+```
+
+It demonstrates:
+
+- bot factory
+- `/start` command
+- one inline callback screen
+- `ack()` plus `render()`
+- one validation-backed scene
+- `TelegramBotTester`
+- mock runner
+- local polling script
+
+Run the mock scenario:
+
+```sh
+php examples/StarterBot/mock.php
+```
+
+Run polling locally:
+
+```sh
+TELEGRAM_BOT_TOKEN=... php examples/StarterBot/run.php
+```
+
+Structure:
+
+```text
+StarterBot/
+  StarterBotFactory.php
+  StarterBotFlow.php
+  PhoneScene.php
+  mock.php
+  run.php
+```
+
 ## MiniShop
 
-The active example is Telegram-specific and lives in:
+`MiniShop` is the advanced Telegram-specific example:
 
 ```text
 examples/MiniShop
@@ -24,21 +68,19 @@ It demonstrates:
 - polling bootstrap
 - optional runtime observer
 
-## Run Mock Scenario
+Run the mock scenario:
 
 ```sh
 php examples/MiniShop/mock.php
 ```
 
-The mock scenario runs the same factory as the live bot and verifies behavior through `TelegramBotTester`.
-
-## Run Polling
+Run polling locally:
 
 ```sh
 TELEGRAM_BOT_TOKEN=... php examples/MiniShop/run.php
 ```
 
-## Example Structure
+Structure:
 
 ```text
 MiniShop/
@@ -55,34 +97,4 @@ MiniShop/
 
 ## Recommended Pattern For New Bots
 
-Create a factory:
-
-```php
-final class BotFactory
-{
-    public static function create(string $token, string $basePath): Bot
-    {
-        $bot = new Bot($token, $basePath);
-        $bot->useStorage(new FileStorage($basePath . '/storage/bot'));
-        (new BotFlow())->register($bot);
-
-        return $bot;
-    }
-}
-```
-
-Create a flow:
-
-```php
-final class BotFlow implements FlowInterface
-{
-    public function register(FlowRuntimeInterface $runtime): void
-    {
-        $runtime->onCommand('start', static function (Context $ctx): void {
-            $ctx->reply('Welcome');
-        });
-    }
-}
-```
-
-Use the same factory for polling, webhook and tests.
+Use the same factory for tests, mock runners, polling and webhook entrypoints.

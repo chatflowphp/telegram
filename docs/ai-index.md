@@ -11,6 +11,18 @@ Active packages:
 
 Research adapters are not active package targets.
 
+## Development Process
+
+For a new production bot, prepare these artifacts before implementation:
+
+- `BOT_SPEC.md` based on `docs/development/bot-spec-template.md`.
+- `IMPLEMENTATION_BLUEPRINT.md` based on `docs/development/implementation-blueprint-template.md`.
+- `TelegramBotTester` acceptance scenarios based on `docs/development/acceptance-testing-guide.md`.
+
+Use `docs/development/index.md` as the workflow entrypoint and `docs/development/spec-review-checklist.md` before coding.
+
+The `docs/development/monitoring-bot-spec-example.md` file is a documentation-only example of a complex production bot spec.
+
 ## Default Implementation Rule
 
 Use `ChatFlow\Core\Context` and core `View` objects for normal bot logic.
@@ -96,6 +108,16 @@ Run the canonical example:
 
 ```sh
 php examples/MiniShop/mock.php
+```
+
+## AI Implementation Prompt
+
+```md
+Implement this Telegram bot using chatflowphp/telegram.
+Use ChatFlow\Core\Context, View and Action by default.
+Use TelegramContext only for Telegram-specific behavior.
+Start by adding TelegramBotTester acceptance tests from the scenarios.
+Do not use real Telegram network calls in tests.
 ```
 
 ## Do Not

@@ -4,6 +4,15 @@
 
 Use it only when a handler needs Telegram-specific options or metadata.
 
+If you are new to the package, complete [Getting Started](getting-started.md) first.
+
+## `Context` vs `TelegramContext`
+
+| Choose | Use It For | Why |
+| --- | --- | --- |
+| `Context` | Commands, actions, scenes, sessions, views and normal bot behavior | This is the default portable API and the one most handlers should use |
+| `TelegramContext` | Force reply, Telegram message options, current Telegram ids and raw update metadata | These are Telegram-only helpers that do not belong in the core contract |
+
 ## Injection
 
 `TelegramPlatformAdapter` binds `TelegramContext` into the container for each handled update:

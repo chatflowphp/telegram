@@ -28,7 +28,7 @@
     },
     "autoload-dev": {
         "psr-4": {
-            "ChatFlow\\Telegram\\Examples\\MiniShop\\": "examples/MiniShop/",
+            "ChatFlow\\Telegram\\Examples\\": "examples/",
             "ChatFlow\\Telegram\\Tests\\": "tests/"
         }
     },

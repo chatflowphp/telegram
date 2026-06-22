@@ -2,6 +2,8 @@
 
 `TelegramBotTester` runs a `Bot` instance without real Telegram network calls when paired with `MockHttpClient`.
 
+If you are new to the package, finish [Getting Started](getting-started.md) first. The `StarterBot` example is the minimal reference. `MiniShop` shows the larger pattern.
+
 ## Example
 
 ```php
@@ -56,10 +58,16 @@ Each request contains:
 
 ## Example Scenario
 
-The MiniShop example has a mock runner:
+The `StarterBot` example has the smallest runnable mock runner:
+
+```sh
+php examples/StarterBot/mock.php
+```
+
+`MiniShop` is the larger end-to-end reference:
 
 ```sh
 php examples/MiniShop/mock.php
 ```
 
-Use this as the reference pattern for end-to-end example tests.
+Use the same pattern for end-to-end example tests.
