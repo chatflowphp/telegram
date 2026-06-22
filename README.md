@@ -1,5 +1,10 @@
 # ChatFlow Telegram
 
+[![CI](https://github.com/chatflowphp/telegram/actions/workflows/ci.yml/badge.svg)](https://github.com/chatflowphp/telegram/actions/workflows/ci.yml)
+[![PHPStan](https://img.shields.io/badge/PHPStan-level%20max-brightgreen.svg)](https://phpstan.org/)
+[![PHPUnit](https://img.shields.io/badge/PHPUnit-tested-brightgreen.svg)](https://phpunit.de/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 `chatflowphp/telegram` is the Telegram adapter for the platform-neutral ChatFlow core.
 
 It supports webhook and polling execution, commands, callback actions, smart render/edit-or-send behavior, media views, callback acknowledgements, Telegram file downloads and a typed Telegram layer for admin-style bots.
