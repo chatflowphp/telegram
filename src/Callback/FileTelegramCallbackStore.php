@@ -81,6 +81,7 @@ final class FileTelegramCallbackStore implements TelegramCallbackStoreInterface
 
         $expiresBefore = time() - $this->ttlSeconds;
         foreach (glob(rtrim($this->directory, '/') . '/*.json') ?: [] as $path) {
+            clearstatcache(true, $path);
             $modifiedAt = filemtime($path);
             if ($modifiedAt === false || $modifiedAt > $expiresBefore) {
                 continue;

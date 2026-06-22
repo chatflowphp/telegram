@@ -85,6 +85,7 @@ final class FileTelegramMediaGroupStore implements TelegramMediaGroupStoreInterf
         $expiresBefore = time() - $this->ttlSeconds;
         foreach (glob(rtrim($this->directory, '/') . '/*', GLOB_ONLYDIR) ?: [] as $dir) {
             $latestModifiedAt = $this->latestModifiedAt($dir);
+            clearstatcache(true, $dir);
             $modifiedAt = $latestModifiedAt ?? filemtime($dir);
             if ($modifiedAt === false || $modifiedAt > $expiresBefore) {
                 continue;
@@ -120,6 +121,7 @@ final class FileTelegramMediaGroupStore implements TelegramMediaGroupStoreInterf
     {
         $latest = null;
         foreach (glob($dir . '/*.json') ?: [] as $path) {
+            clearstatcache(true, $path);
             $modifiedAt = filemtime($path);
             if ($modifiedAt === false) {
                 continue;
