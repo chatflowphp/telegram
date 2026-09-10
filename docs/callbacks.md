@@ -4,8 +4,6 @@ Telegram callback queries are normalized into core action events.
 
 ## Creating Inline Buttons
 
-Use core `Action` objects:
-
 ```php
 use ChatFlow\View\Action;
 use ChatFlow\View\View;
@@ -13,14 +11,14 @@ use ChatFlow\View\View;
 $ctx->reply(
     View::text('Open the menu')
         ->addActionRow(new Action('menu:open', 'Open menu'))
+        ->addActionRow(new Action('cart:add', 'Add to cart', ['id' => 10])),
 );
 ```
 
-Telegram renders these as inline keyboard buttons.
+Actions become inline keyboard buttons. Payloads are signed (or stored behind a token when they
+do not fit into 64 bytes); see [Callback Payload Store](callback-payload-store.md).
 
 ## Handling Actions
-
-Use exact, prefix or regex routes:
 
 ```php
 $bot->onAction('menu:open', static function (Context $ctx): void {
@@ -30,43 +28,34 @@ $bot->onAction('menu:open', static function (Context $ctx): void {
 
 $bot->onActionPrefix('product:', $handler);
 $bot->onActionRegex('/^cart:/', $handler);
+$bot->prefix('menu:', $handler);       // sugar for onActionPrefix()
 ```
 
-Telegram-friendly `prefix()` maps to `onActionPrefix()`:
-
-```php
-$bot->prefix('menu:', $handler);
-```
+Action routes run in the root scene. Mark one `->global()` to make it work inside scenes as well,
+for example a "Home" button present on every screen.
 
 ## Payloads
 
-Actions can carry payload:
-
 ```php
-new Action('cart:add', 'Add to cart', ['id' => 10])
+$ctx->getActionId();       // 'cart:add'
+$ctx->getActionPayload();  // ['id' => 10]
 ```
 
-The adapter encodes callback data and decodes it back to:
-
-```php
-$ctx->getActionId();
-$ctx->getActionPayload();
-```
+Callback data that was not produced by the bot (unsigned or tampered) is rejected before any
+handler runs; the update returns `Result::noMatch('unsupported_update')`.
 
 ## Acknowledgement
 
-Use `ack()` for callback feedback:
-
 ```php
+$ctx->ack();
 $ctx->ack('Saved');
-$ctx->ack('Validation failed', true);
+$ctx->ack('Validation failed', true);   // alert
 ```
 
-For Telegram callback queries, `ack()` calls `answerCallbackQuery()`. If there is no callback query and text is provided, Telegram sends a normal message.
+For callback queries `ack()` calls `answerCallbackQuery()`. Without a callback query and with
+text, it sends a message.
 
 ## URL Buttons
-
-An action with URL becomes a Telegram URL inline button:
 
 ```php
 new Action('docs', 'Open docs', url: 'https://example.com')

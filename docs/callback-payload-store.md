@@ -1,60 +1,41 @@
 # Callback Payload Store
 
-Telegram callback data is limited to 64 bytes.
-
-`TelegramCallbackPayloadEncoder` keeps the user-facing `Action` API simple by storing large payloads behind short tokens.
+Telegram limits callback data to 64 bytes and does not verify that the data a client sends
+matches a button the bot rendered. `TelegramCallbackPayloadEncoder` solves both.
 
 ## Encoding Rules
 
-If an action has no payload and the action id fits into the limit:
+| Action | Callback data |
+| --- | --- |
+| no payload, id fits | `cart:open` |
+| payload fits when signed | `cs:<12 hex chars>:{"id":"cart:add","payload":{"id":10}}` |
+| otherwise | `cf:<16 hex token>` pointing to the stored `['id' => ..., 'payload' => ...]` |
 
-```text
-cart:open
-```
+The signature is HMAC-SHA256 over the JSON, truncated to 12 hex characters. `Bot` derives the
+key from the bot token; pass `callbackSecret` to the constructor to use your own.
 
-If the JSON payload fits into the limit:
+## Decoding
 
-```json
-{"id":"cart:add","payload":{"id":10}}
-```
+`decode()` returns a `DecodedCallback`:
 
-If the encoded value is too large:
+| Status | Meaning | Effect |
+| --- | --- | --- |
+| `accepted` | plain id, valid signature or resolved token | normal action event |
+| `expired` | `cf:` token no longer stored | event without action; `callback_status` = `expired` in the message ref |
+| `rejected` | unsigned JSON, bad signature, malformed data | the update is skipped with `Result::noMatch('unsupported_update')` |
 
-```text
-cf:<token>
-```
-
-The token points to stored data:
-
-```php
-['id' => 'cart:add', 'payload' => ['id' => 10]]
-```
+Handle expired buttons in a fallback route or in the active scene's `handle()`, for example by
+re-rendering the screen.
 
 ## Stores
 
-Production default:
+- `FileTelegramCallbackStore($directory, ttlSeconds: 604800, cleanupProbability: 2)` is the
+  default. Files are created on first use and expired ones are removed on write with the given
+  probability; call `cleanupExpired()` from a cron job for deterministic cleanup.
+- `InMemoryTelegramCallbackStore` for tests.
+- Implement `TelegramCallbackStoreInterface` for Redis or a database.
 
-```php
-FileTelegramCallbackStore
-```
+## Payload Rules
 
-Test/default in-memory option:
-
-```php
-InMemoryTelegramCallbackStore
-```
-
-## Inbound Decode
-
-On callback query, the adapter decodes the callback data and exposes:
-
-```php
-$ctx->getActionId();
-$ctx->getActionPayload();
-```
-
-If a `cf:<token>` cannot be resolved, action id and payload become `null`, so no action route should match.
-
-## Storage Rules
-
-Payload values must be serializable according to core rules: scalar, `null`, arrays of allowed values or `BackedEnum`. Objects, resources and non-backed `UnitEnum` are not valid payload values.
+Payloads must be serializable under core rules: scalars, `null`, arrays of those, backed enums.
+Prefer ids over data: `['id' => 10]`, not the whole product.

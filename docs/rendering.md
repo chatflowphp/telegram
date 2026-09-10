@@ -36,7 +36,10 @@ Telegram delivery strategy:
 3. If editing is not possible, try deleting the current message.
 4. Send a new message or media message.
 
-Render fallback failures are logged. The flow fails only if final delivery fails.
+When Telegram reports that the message is not modified (the user pressed a button that renders
+the same screen), the render is treated as success and nothing is deleted or resent.
+
+Other render fallback failures are logged. The flow fails only if final delivery fails.
 
 ## Ack
 

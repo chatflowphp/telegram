@@ -67,6 +67,9 @@ For every scene method:
 | `onConfirm` | scene action |  |  |  |
 
 Use `BaseScene` for multi-step dialog state. Use plain route handlers for one-step actions.
+Scenes are stateless: draft data lives in `$ctx->session()` and is cleared in `onLeave()` or
+when the scene completes. Declare the allowed transitions between scenes with
+`allowTransition()` so the runtime enforces the screen map.
 
 ## 5. Views And Actions
 

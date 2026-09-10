@@ -15,7 +15,8 @@ If you are new to the package, complete [Getting Started](getting-started.md) fi
 
 ## Injection
 
-`TelegramPlatformAdapter` binds `TelegramContext` into the container for each handled update:
+`TelegramPlatformAdapter` binds `TelegramContext` into the request scope of the container for
+each handled update; handlers receive it by type hint:
 
 ```php
 $bot->command('debug', static function (TelegramContext $telegram): void {

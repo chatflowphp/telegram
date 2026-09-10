@@ -5,63 +5,92 @@
 [![PHPUnit](https://img.shields.io/badge/PHPUnit-tested-brightgreen.svg)](https://phpunit.de/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-`chatflowphp/telegram` is the Telegram adapter for the platform-neutral ChatFlow core.
+`chatflowphp/telegram` is the Telegram adapter for the ChatFlow runtime. Every chat is a state
+machine: screens and dialog steps are scenes, each update is one tick, and navigation between
+them is a transition that either commits or rolls back.
 
-It supports webhook and polling execution, commands, callback actions, smart render/edit-or-send behavior, media views, callback acknowledgements, Telegram file downloads and a typed Telegram layer for admin-style bots.
+It supports webhook and polling execution, commands (including `/command@bot` in groups),
+signed callback buttons, smart edit-or-send rendering, media views, callback acknowledgements,
+file downloads, media groups and a typed Telegram layer for admin-style bots.
 
-Full package documentation starts at [docs/index.md](docs/index.md). Use [docs/ai-index.md](docs/ai-index.md) as compact context for AI-assisted bot implementation tasks.
-
-## Start Here
-
-- Build your first bot: [docs/getting-started.md](docs/getting-started.md)
-- Design a production bot: [docs/development/index.md](docs/development/index.md)
-- Browse API and runtime reference: [docs/index.md](docs/index.md)
-- AI implementation context: [docs/ai-index.md](docs/ai-index.md)
+Documentation starts at [docs/index.md](docs/index.md). Coming from 1.x? Read
+[docs/upgrade-from-1.x.md](docs/upgrade-from-1.x.md).
 
 ## Quick Start
 
 ```php
 use ChatFlow\Core\Context;
+use ChatFlow\Scene\BaseScene;
+use ChatFlow\Scene\RootScene;
+use ChatFlow\Storage\Drivers\FileStorage;
 use ChatFlow\Telegram\Bot;
 use ChatFlow\View\Action;
 use ChatFlow\View\View;
 
-$bot = new Bot($_ENV['TELEGRAM_BOT_TOKEN'], __DIR__);
+final class PhoneScene extends BaseScene
+{
+    public function handle(Context $ctx): void
+    {
+        $ctx->ask('Send your phone in +79991234567 format')
+            ->validate('regex:/^\+7\d{10}$/', 'Use +79991234567.')
+            ->onText('cancel', 'onCancel')
+            ->handle('savePhone');
+    }
+
+    public function savePhone(Context $ctx): void
+    {
+        $ctx->session()->set('phone', $ctx->getText());
+        $ctx->reply('Saved');
+        $ctx->leave();
+    }
+
+    public function onCancel(Context $ctx): void
+    {
+        $ctx->leave();
+    }
+}
+
+$bot = new Bot($_ENV['TELEGRAM_BOT_TOKEN'], __DIR__, storage: new FileStorage(__DIR__ . '/storage/bot'));
+
+$bot->registerScene(PhoneScene::class);
+$bot->allowTransition(RootScene::ID, PhoneScene::class);
 
 $bot->command('start', static function (Context $ctx): void {
-    $ctx->reply(
-        View::text('Hello from ChatFlow Telegram')
-            ->addActionRow(new Action('menu:open', 'Open menu'))
-    );
+    $ctx->reply(View::text('Hello')->addActionRow(new Action('phone:edit', 'Set phone')));
 });
 
-$bot->prefix('menu:', static function (Context $ctx): void {
+$bot->onAction('phone:edit', static function (Context $ctx): void {
     $ctx->ack();
-    $ctx->render(View::text('Menu opened'));
+    $ctx->enter(PhoneScene::class);
 });
 
 $bot->runWebhook();
 ```
 
-For a runnable version of this pattern, see [examples/StarterBot](examples/StarterBot).
+`/start` sent while the phone scene is active runs the command and keeps the scene; `cancel`
+leaves it; anything else asks again. See [examples/StarterBot](examples/StarterBot) for the
+runnable version and [examples/MiniShop](examples/MiniShop) for a larger bot with a declared
+screen map.
 
 ## Mapping
 
-- Telegram messages become text events.
-- Callback queries become action events.
-- Chat id becomes `ConversationRef::getId()` and is used as the session key.
-- Telegram message/callback metadata is stored in `MessageRef` for adapter delivery.
-- `reply()` sends a new message.
-- `render()` edits where possible, otherwise deletes/sends.
-- `ack()` answers callback queries and falls back to a message when text is provided.
+- Telegram messages become text events, callback queries become action events, media messages
+  become inbound attachments.
+- The chat id is the conversation id and the storage key.
+- `reply()` sends a new message. `render()` edits the current message where Telegram allows it,
+  otherwise deletes and sends. An unchanged screen is a no-op.
+- `ack()` answers the callback query; with text and no callback it sends a message.
+- Updates without a chat (inline queries, polls, shipping queries) are skipped with
+  `Result::noMatch('unsupported_update')`.
 
 ## Telegram-Specific Layer
 
-Keep portable handler code on `ChatFlow\Core\Context`. Use `ChatFlow\Telegram\TelegramContext` only when the flow needs Telegram-only behavior:
+Keep handlers on `ChatFlow\Core\Context`. Use `ChatFlow\Telegram\TelegramContext` for force
+reply, Telegram message options and update metadata; inject `TelegramPublisher` when a handler
+must obtain Telegram message ids immediately; inject `Telegram\Bot\Api` for endpoints ChatFlow
+does not model.
 
 ```php
-use ChatFlow\Telegram\TelegramContext;
-
 $bot->command('ask', static function (TelegramContext $telegram): void {
     $telegram->forceReply('Send the updated post text');
 });
@@ -71,81 +100,25 @@ $bot->onTelegramEvent('my_chat_member', static function (TelegramContext $telegr
 });
 ```
 
-`TelegramContext` is intentionally not a facade for the Telegram Bot API. It only adds ChatFlow-aware Telegram helpers such as `forceReply()`, Telegram message options and current update metadata. Use core `ack()` for callback acknowledgements.
+Callback payloads are signed with a key derived from the bot token (or `callbackSecret`) and
+verified on every callback query. Payloads that do not fit into 64 bytes are stored behind a
+random token. Forged callback data is rejected before it reaches any handler.
 
-For publishing flows that need Telegram `message_id` immediately, inject `ChatFlow\Telegram\TelegramPublisher` and call `sendMessage()`, `sendMedia()`, `sendMediaGroup()`, `editText()`, `editCaption()` or `deleteMessage()` directly. Publisher methods return typed delivery results with chat id, message ids, endpoint and raw response. For Telegram Bot API endpoints not covered by ChatFlow semantics, inject `Telegram\Bot\Api` and use the SDK directly.
-
-`TelegramView` and `TelegramMessageOptions` attach Telegram Bot API options to a neutral `View` via metadata:
-
-```php
-use ChatFlow\Telegram\TelegramView;
-
-$ctx->reply(TelegramView::forceReply('Reply with details'));
-```
-
-Long callback payloads are stored automatically behind short `cf:<token>` callback data. Inbound callback queries are decoded back to the original action id and payload.
-
-Inbound Telegram attachments are normalized for photos, documents, videos, animations, audio, voice, stickers and video notes. Telegram `file_id`, `file_unique_id`, captions, media group id, dimensions, duration, mime type and size are preserved in attachment metadata.
-
-Media groups are collected by the adapter before core handling. The default collector waits briefly, aggregates updates with the same `media_group_id`, and emits one inbound event with ordered attachments.
-
-`TelegramScreenManager` provides best-effort cleanup for command screens by tracking publisher delivery results and deleting previous message groups.
-
-## Operational Notes
-
-The default file-backed callback payload store keeps long callback payloads for 7 days and removes expired tokens opportunistically. The default media group store keeps pending album parts for 5 minutes and also cleans stale groups opportunistically.
-
-Telegram `render()` is intentionally best-effort: the adapter tries to edit the current message, then falls back to delete/send or send-only when Telegram rejects the edit. These fallbacks are logged through the `Bot` logger but do not fail the flow unless final delivery also fails.
-
-`StarterBot` is the minimal runnable onboarding example. `MiniShop` is the advanced Telegram-specific example with commands, inline callback buttons, smart edit-or-send rendering, media replies, scenes, validation and sessions.
+## Examples And Tests
 
 ```sh
 php examples/StarterBot/mock.php
 php examples/MiniShop/mock.php
+composer check
 ```
 
-## Observability
+`TelegramBotTester` and `MockHttpClient` drive a bot without network access and assert on the
+Telegram requests it makes and on the conversation state.
 
-Pass `runtimeObserver` to the `Bot` constructor to receive core lifecycle events such as route matches, queued effects and delivery failures.
+## Requirements
 
-The MiniShop polling example enables JSONL runtime logs by default:
-
-```sh
-TELEGRAM_BOT_TOKEN=... php examples/MiniShop/run.php
-tail -f storage/minishop/runtime.jsonl
-```
-
-Set `CHATFLOW_RUNTIME_LOG=/path/to/runtime.jsonl` to override the log path.
-
-## Documentation
-
-### First Bot
-
-- [Getting Started](docs/getting-started.md)
-- [Examples](docs/examples.md)
-- [Testing](docs/testing.md)
-
-### Production Workflow
-
-- [Telegram Bot Development Kit](docs/development/index.md)
-- [Bot Development Process](docs/development/development-process.md)
-- [Bot Spec Template](docs/development/bot-spec-template.md)
-- [Spec Review Checklist](docs/development/spec-review-checklist.md)
-- [Implementation Blueprint Template](docs/development/implementation-blueprint-template.md)
-- [Acceptance Testing Guide](docs/development/acceptance-testing-guide.md)
-- [AI Development Workflow](docs/development/ai-development-workflow.md)
-
-### API Reference
-
-- [Commands](docs/commands.md)
-- [Callbacks](docs/callbacks.md)
-- [Rendering](docs/rendering.md)
-- [Telegram Context](docs/telegram-context.md)
-- [Scenes And Dialogs](docs/scenes-dialogs.md)
-- [Media And Files](docs/media-files.md)
-- [Webhook And Polling](docs/webhook-polling.md)
-- [AI Index](docs/ai-index.md)
+PHP 8.2 or newer, `chatflowphp/core` 2.x, `irazasyed/telegram-bot-sdk` 3.14 or newer.
 
 ## License
 
-This project is released under the MIT License. See `LICENSE` for details.
+MIT. See [LICENSE](LICENSE).

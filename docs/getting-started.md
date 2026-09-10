@@ -2,20 +2,17 @@
 
 Build your first Telegram bot with the minimal runnable example in `examples/StarterBot`.
 
-If you are designing a production bot with formal specs and acceptance scenarios, start with the [Telegram Bot Development Kit](development/index.md) instead.
+If you are designing a production bot with formal specs and acceptance scenarios, start with the
+[Telegram Bot Development Kit](development/index.md) instead.
 
 ## What You Will Build
 
-By the end of this guide you will have:
-
-- a `BotFactory` that creates the Telegram runtime
-- one `/start` command
-- one inline button that opens a settings screen
-- one callback route that uses `ack()` and `render()`
-- one scene that validates a phone number
-- one `TelegramBotTester` acceptance test
-- one local `mock.php` runner
-- one local polling script
+- a `BotFactory` that creates the Telegram runtime with storage;
+- one `/start` command and one `/cancel` command that works everywhere;
+- one inline button that opens a settings screen with `ack()` and `render()`;
+- one scene that validates a phone number and can be cancelled;
+- one `TelegramBotTester` acceptance test;
+- a local `mock.php` runner and a polling script.
 
 Reference implementation:
 
@@ -24,27 +21,24 @@ Reference implementation:
 - [PhoneScene.php](../examples/StarterBot/PhoneScene.php)
 - [StarterBotFlowTest.php](../tests/Integration/StarterBotFlowTest.php)
 
-## 1. Install The Package
-
-Install the adapter:
+## 1. Install
 
 ```sh
 composer require chatflowphp/telegram
 ```
 
-Deeper reference: [Installation](installation.md)
-
 ## 2. Create A Bot Factory
-
-Create a factory that builds `Bot`, configures storage and registers the flow:
 
 ```php
 final class StarterBotFactory
 {
     public static function create(string $token, string $basePath): Bot
     {
-        $bot = new Bot(token: $token, basePath: $basePath);
-        $bot->useStorage(new FileStorage($basePath . '/storage/starter-bot'));
+        $bot = new Bot(
+            token: $token,
+            basePath: $basePath,
+            storage: new FileStorage($basePath . '/storage/starter-bot'),
+        );
         (new StarterBotFlow())->register($bot);
 
         return $bot;
@@ -52,30 +46,20 @@ final class StarterBotFactory
 }
 ```
 
-Use file storage for local development and memory storage in tests.
-
-Deeper reference: [Installation](installation.md)
+Use file storage locally and `MemoryStorage` in tests. Storage keeps the current scene and the
+session data of every chat between updates.
 
 ## 3. Add `/start` And The First Screen
 
-Register a command that replies with a `View` containing one inline button:
-
 ```php
 $runtime->onCommand('start', static function (Context $ctx): void {
-    $ctx->reply(
-        View::text('Starter Bot')
-            ->addActionRow(new Action('settings:open', 'Open settings'))
-    );
+    $ctx->reply(View::text('Starter Bot')->addActionRow(new Action('settings:open', 'Open settings')));
 });
 ```
 
-Use `Context` by default for normal bot logic. Keep handlers portable until you truly need Telegram-only behavior.
-
-Deeper reference: [Commands And Text Routes](commands.md)
+Keep handlers on `Context`; reach for `TelegramContext` only for Telegram-only behaviour.
 
 ## 4. Handle A Callback With `ack()` And `render()`
-
-Add a callback route that acknowledges the button press and replaces the current screen:
 
 ```php
 $runtime->onAction('settings:open', static function (Context $ctx): void {
@@ -84,23 +68,15 @@ $runtime->onAction('settings:open', static function (Context $ctx): void {
 });
 ```
 
-Use this rule:
+`reply()` for a new message, `render()` for the same logical screen, `ack()` for button feedback.
 
-- `reply()` for a new message
-- `render()` for the same logical screen
-- `ack()` for lightweight callback feedback
+## 5. Add A Scene With Validation
 
-Deeper reference:
-
-- [Callbacks And Actions](callbacks.md)
-- [Rendering](rendering.md)
-
-## 5. Add One Scene With Validation
-
-Register a scene and enter it from another callback:
+Register the scene, declare where it can be entered from, and enter it from a callback:
 
 ```php
 $runtime->registerScene(PhoneScene::class);
+$runtime->allowTransition(RootScene::ID, PhoneScene::class);
 
 $runtime->onAction('profile:phone', static function (Context $ctx): void {
     $ctx->ack('Updating phone');
@@ -108,31 +84,35 @@ $runtime->onAction('profile:phone', static function (Context $ctx): void {
 });
 ```
 
-Implement the scene with `ask()`, validation and one save handler:
-
 ```php
 final class PhoneScene extends BaseScene
 {
     public function handle(Context $ctx): void
     {
-        $this->ask('Send your phone in +79991234567 format.')
+        $ctx->ask('Send your phone in +79991234567 format, or /cancel.')
             ->validate('regex:/^\+7\d{10}$/', 'Use +79991234567.')
-            ->handle([$this, 'savePhone']);
+            ->onText('cancel', 'onCancel')
+            ->handle('savePhone');
+    }
+
+    public function savePhone(Context $ctx): void
+    {
+        $ctx->session()->set('profile.phone', $ctx->getText());
+        $ctx->reply(StarterBotFlow::settingsView($ctx, 'Phone saved.'));
+        $ctx->leave();
+    }
+
+    public function onCancel(Context $ctx): void
+    {
+        $ctx->leave();
     }
 }
 ```
 
-Important:
-
-- scene state is session-backed
-- scenes require configured storage
-- you do not need lower-level FSM internals to build Telegram dialogs
-
-Deeper reference: [Scenes And Dialogs](scenes-dialogs.md)
+While the scene is active, text goes through the validator, `cancel` calls `onCancel()`, and
+commands such as `/cancel` or `/start` still run because commands are global.
 
 ## 6. Add An Acceptance Test
-
-Use `TelegramBotTester` and `MockHttpClient` to lock the transcript before or alongside implementation:
 
 ```php
 $tester
@@ -141,39 +121,26 @@ $tester
     ->clickButton('settings:open')
     ->assertEndpointCalled('editMessageText')
     ->clickButton('profile:phone')
-    ->assertScene(PhoneScene::class);
+    ->assertScene(PhoneScene::class)
+    ->sendMessage('+79991234567')
+    ->assertNotInScene()
+    ->assertSessionHas('profile.phone', '+79991234567');
 ```
 
-Reference implementation: [StarterBotFlowTest.php](../tests/Integration/StarterBotFlowTest.php)
-
-Deeper reference: [Testing](testing.md)
-
 ## 7. Run The Mock Scenario
-
-Run the local no-network scenario:
 
 ```sh
 php examples/StarterBot/mock.php
 ```
 
-This should print the outgoing Telegram API requests generated by the example flow.
-
-Deeper reference: [Examples](examples.md)
-
 ## 8. Run Polling Locally
-
-Run the example in polling mode:
 
 ```sh
 TELEGRAM_BOT_TOKEN=... php examples/StarterBot/run.php
 ```
 
-Use polling for local development and webhook for production.
-
-Deeper reference: [Webhook And Polling](webhook-polling.md)
-
 ## Next Steps
 
-- For a larger runnable bot, read [Examples](examples.md) and inspect `MiniShop`.
-- For Telegram-only helpers such as force reply or current chat/message metadata, read [Telegram Context](telegram-context.md).
-- For production planning, switch to the [Telegram Bot Development Kit](development/index.md).
+- [Examples](examples.md) and `MiniShop` for a larger bot with a declared screen map.
+- [Telegram Context](telegram-context.md) for force reply and update metadata.
+- [Telegram Bot Development Kit](development/index.md) for production planning.

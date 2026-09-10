@@ -1,16 +1,11 @@
 # Middleware
 
-Core middleware works in Telegram through `Bot::middleware()`.
-
-## Register Middleware
+Core middleware wraps every handled update: routes, scenes, media handlers and Telegram event
+handlers alike.
 
 ```php
-$bot->middleware([
-    MyMiddleware::class,
-]);
+$bot->middleware([TypingMiddleware::class, VisitorMiddleware::class]);
 ```
-
-Middleware receives core `Context`:
 
 ```php
 final class VisitorMiddleware implements MiddlewareInterface
@@ -24,26 +19,23 @@ final class VisitorMiddleware implements MiddlewareInterface
 }
 ```
 
+## Levels
+
+| Level | Registration | Runs |
+| --- | --- | --- |
+| global | `$bot->middleware([...])` | for every update |
+| scene | `BaseScene::getMiddlewares()` | while the scene is active |
+| route | `$bot->onCommand(...)->middleware(...)` | when that route runs |
+
+A middleware may return a core `Result` without calling `$next` to stop processing; nothing is
+persisted in that case.
+
 ## Typing Middleware
 
-`ChatFlow\Telegram\Middleware\TypingMiddleware` sends Telegram `typing` chat action before continuing.
-
-```php
-use ChatFlow\Telegram\Middleware\TypingMiddleware;
-
-$bot->middleware([
-    TypingMiddleware::class,
-]);
-```
-
-The middleware swallows Telegram chat-action failures. Typing indicators must never break the actual flow.
-
-## Order
-
-Middleware is executed in registration order.
-
-The handler or scene runs after middleware calls `$next($ctx)`.
+`ChatFlow\Telegram\Middleware\TypingMiddleware` sends the `typing` chat action before
+continuing and swallows failures: indicators must never break the flow.
 
 ## Dependency Injection
 
-Middleware classes are resolved through the container. Telegram-specific middleware may type-hint Telegram SDK services such as `Telegram\Bot\Api`, but portable middleware should only depend on core services.
+Middleware classes are resolved through the container. Telegram-specific middleware may
+type-hint `Telegram\Bot\Api`; portable middleware depends on core services only.

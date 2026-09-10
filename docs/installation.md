@@ -1,23 +1,23 @@
 # Installation
 
-Install the Telegram adapter in an application:
-
 ```sh
 composer require chatflowphp/telegram
 ```
 
-The package depends on `chatflowphp/core` and `irazasyed/telegram-bot-sdk`.
+The package depends on `chatflowphp/core` 2.x, `chatflowphp/automata` 2.x and
+`irazasyed/telegram-bot-sdk`.
 
 ## Requirements
 
-- PHP `^8.2`.
-- A Telegram bot token from BotFather.
-- Writable storage directory when sessions, callback payload storage or media group collection are used.
+- PHP 8.2 or newer.
+- A bot token from BotFather.
+- A writable directory for conversation storage, callback payloads and media group parts.
 
 ## Minimal Bot
 
 ```php
 use ChatFlow\Core\Context;
+use ChatFlow\Storage\Drivers\FileStorage;
 use ChatFlow\Telegram\Bot;
 
 require __DIR__ . '/vendor/autoload.php';
@@ -25,6 +25,7 @@ require __DIR__ . '/vendor/autoload.php';
 $bot = new Bot(
     token: $_ENV['TELEGRAM_BOT_TOKEN'],
     basePath: __DIR__,
+    storage: new FileStorage(__DIR__ . '/storage/bot'),
 );
 
 $bot->command('start', static function (Context $ctx): void {
@@ -36,29 +37,23 @@ $bot->runWebhook();
 
 ## Storage
 
-Scenes and sessions require a storage implementation:
+Conversations (current scene, session data, history) are stored through
+`ChatFlow\Storage\StorageInterface`. Without the `storage` argument the bot uses in-memory
+storage, which is enough for polling processes and tests but forgets everything between webhook
+requests. Drivers: `FileStorage`, `RedisStorage`, `DatabaseStorage`, `MemoryStorage`.
 
 ```php
-use ChatFlow\Storage\Drivers\FileStorage;
-
-$bot->useStorage(new FileStorage(__DIR__ . '/storage/bot'));
+$bot->useStorage(new RedisStorage($redis), sessionTtlSeconds: 86400);
 ```
 
-The default Telegram callback payload store uses:
+Default Telegram stores under `basePath`:
 
 ```text
-<basePath>/storage/telegram-callbacks
-```
-
-The default Telegram media group store uses:
-
-```text
-<basePath>/storage/telegram-media-groups
+storage/telegram-callbacks       long callback payloads
+storage/telegram-media-groups    pending album parts
 ```
 
 ## Local Development
-
-For package development in this workspace:
 
 ```sh
 composer install

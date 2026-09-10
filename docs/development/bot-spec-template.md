@@ -87,6 +87,11 @@ campaign:report:download
 
 Use payloads for dynamic ids instead of embedding unbounded data into action ids.
 
+Transitions between screens that are scenes become `allowTransition()` declarations in the
+flow; guards express the conditions from this table (for example "checkout needs a non-empty
+cart"). The runtime can print the declared map with `$bot->getTransitions()->toMermaid()` for
+review against this section.
+
 ## 6. Action Catalog
 
 | Action Id | Payload | Source Screen | Handler | Ack | Result |

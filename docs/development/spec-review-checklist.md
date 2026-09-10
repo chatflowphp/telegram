@@ -37,6 +37,8 @@ Use this checklist before implementation starts. The goal is to catch vague requ
 - [ ] Every validation error has exact user text.
 - [ ] Session keys are listed.
 - [ ] Scene completion and cleanup behavior are defined.
+- [ ] Allowed transitions between scenes (and their guards) are listed.
+- [ ] Behavior of global commands (`/start`, `/cancel`) inside each scene is defined.
 - [ ] Cancel/back behavior is defined.
 
 ## Data And Integrations

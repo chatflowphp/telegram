@@ -1,39 +1,15 @@
 # Examples
 
-If you are new to the package, finish [Getting Started](getting-started.md) first.
-
 ## StarterBot
 
-`StarterBot` is the minimal runnable onboarding example:
-
-```text
-examples/StarterBot
-```
-
-It demonstrates:
-
-- bot factory
-- `/start` command
-- one inline callback screen
-- `ack()` plus `render()`
-- one validation-backed scene
-- `TelegramBotTester`
-- mock runner
-- local polling script
-
-Run the mock scenario:
+`examples/StarterBot` is the minimal runnable example: a bot factory with storage, `/start` and
+a global `/cancel`, one inline screen with `ack()` and `render()`, one validation-backed scene
+with a text shortcut, `TelegramBotTester` tests, a mock runner and a polling script.
 
 ```sh
 php examples/StarterBot/mock.php
-```
-
-Run polling locally:
-
-```sh
 TELEGRAM_BOT_TOKEN=... php examples/StarterBot/run.php
 ```
-
-Structure:
 
 ```text
 StarterBot/
@@ -46,41 +22,16 @@ StarterBot/
 
 ## MiniShop
 
-`MiniShop` is the advanced Telegram-specific example:
-
-```text
-examples/MiniShop
-```
-
-It demonstrates:
-
-- bot factory
-- commands
-- inline callback actions
-- scene action buttons
-- smart `render()` edit behavior
-- media reply
-- sessions
-- validation
-- custom middleware
-- domain exception policy
-- mock testing
-- polling bootstrap
-- optional runtime observer
-
-Run the mock scenario:
+`examples/MiniShop` is the advanced Telegram-specific example: a declared screen map (root to
+shop, shop to checkout only with a non-empty cart, checkout back to shop), scene action buttons
+with payloads, smart `render()` edits, a media reply, sessions, validation with a cancel choice,
+custom middleware, a domain exception policy, mock testing, polling bootstrap and an optional
+runtime observer.
 
 ```sh
 php examples/MiniShop/mock.php
-```
-
-Run polling locally:
-
-```sh
 TELEGRAM_BOT_TOKEN=... php examples/MiniShop/run.php
 ```
-
-Structure:
 
 ```text
 MiniShop/
@@ -95,6 +46,13 @@ MiniShop/
   run.php
 ```
 
-## Recommended Pattern For New Bots
+Print the screen map of the example:
 
-Use the same factory for tests, mock runners, polling and webhook entrypoints.
+```php
+echo $bot->getTransitions()->toMermaid();
+```
+
+## Recommended Pattern
+
+Use one factory for tests, mock runners, polling and webhook entrypoints, and register the flow
+through `FlowInterface` so the same code runs on every entrypoint.

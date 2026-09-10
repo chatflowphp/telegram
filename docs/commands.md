@@ -2,11 +2,7 @@
 
 Telegram text messages are normalized into core text events.
 
-If you are new to the package, start with [Getting Started](getting-started.md) and come back here when you need the route catalog.
-
-## Command Sugar
-
-`Bot::command()` is Telegram-friendly sugar over core `onCommand()`:
+## Commands
 
 ```php
 $bot->command('start', static function (Context $ctx): void {
@@ -14,14 +10,14 @@ $bot->command('start', static function (Context $ctx): void {
 });
 ```
 
-`onCommand('start')` matches:
+`command()` is sugar over `onCommand()`. A command route matches `/start`, `/start argument text`
+and the group form `/start@your_bot`.
 
-- `/start`
-- `/start argument text`
+Commands are **global**: they run even while a scene is active, so `/start`, `/cancel` and
+`/help` always work. A scene can refuse them by returning `false` from `allowsGlobalRoutes()`.
+Turn a command into a root-only route with `->global(false)`.
 
 ## Core Route API
-
-`Bot` also exposes the full core route API:
 
 ```php
 $bot->onTextPrefix('/search', $handler);
@@ -30,11 +26,12 @@ $bot->onCommand('help', $handler);
 $bot->fallback($handler);
 ```
 
-First registered route wins.
+First registered route wins. Text prefix, regex and fallback routes run only in the root scene
+unless marked `->global()`.
 
 ## Handler Dependencies
 
-Handlers are called through the container. You can type-hint `Context` and services registered in the container:
+Handlers are called through the container. Parameters resolve by type hint or by name:
 
 ```php
 $bot->getContainer()->set(OrderService::class, new OrderService());
@@ -46,6 +43,5 @@ $bot->command('orders', static function (Context $ctx, OrderService $orders): vo
 
 ## Portable Code
 
-Use `ChatFlow\Core\Context` for normal business handlers.
-
-Only use `TelegramContext` when the handler needs Telegram-specific data or behavior.
+Use `ChatFlow\Core\Context` for business handlers. Use `TelegramContext` only when the handler
+needs Telegram-specific data or behaviour.

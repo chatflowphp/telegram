@@ -1,42 +1,38 @@
 # Screen Manager
 
-`TelegramScreenManager` is a Telegram-specific helper for best-effort cleanup of message groups.
-
-It is useful in admin screens where the application sends several messages through `TelegramPublisher` and wants to delete the previous group on the next render.
-
-## Basic Usage
+`TelegramScreenManager` is a Telegram-specific helper for best-effort cleanup of message groups
+published with `TelegramPublisher`, typically admin screens made of several messages.
 
 ```php
 use ChatFlow\Telegram\UI\TelegramScreenManager;
 
-$bot->command('admin', static function (
-    Context $ctx,
-    TelegramScreenManager $screens,
-    TelegramPublisher $publisher
-): void {
+$bot->command('admin', static function (Context $ctx, TelegramScreenManager $screens, TelegramPublisher $publisher): void {
     $screens->beginGroup('admin-home');
-
-    $result = $publisher->sendMessage($ctx->getConversationId(), 'Admin screen');
-    $screens->track($result);
+    $screens->track($publisher->sendMessage($ctx->getConversationId(), 'Admin screen'));
+    $screens->track($publisher->sendMediaGroup($ctx->getConversationId(), $charts));
 });
 ```
 
-Calling `beginGroup('admin-home')` clears the previous tracked messages for the same conversation and group name by calling `deleteMessage()` best-effort.
+`beginGroup('admin-home')` deletes the messages tracked under that name for the current
+conversation, then makes it the active group. `track()` records the message ids of a delivery
+result.
 
-## Important Boundary
+## Persistence
 
-`TelegramScreenManager` tracks delivery results from `TelegramPublisher`.
-
-It does not automatically track all core `reply()` or `render()` effects.
-
-For ordinary bot screens, prefer `ctx->render()` and let the Telegram adapter do smart edit/delete/send behavior.
+Tracked ids are stored in the conversation session (extension `telegram.screens`), so cleanup
+works across webhook requests and survives restarts with persistent storage. Without a
+conversation (manager used outside a handled update) ids are kept in memory.
 
 ## Methods
 
 ```php
 $screens->beginGroup('name', clearPrevious: true);
 $screens->clearGroup('name');
-$screens->track($result);
+$screens->track($result, 'name');
+$screens->tracked('name');
 ```
 
-Cleanup failures are swallowed because screen cleanup must not break the user-facing flow.
+Cleanup failures are swallowed: deleting old messages must never break the user-facing flow.
+
+For ordinary bot screens prefer `$ctx->render()`; the adapter edits the current message or
+deletes and resends it on its own.

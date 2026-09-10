@@ -2,59 +2,26 @@
 
 ## Outbound Media In Views
 
-Portable outbound media uses core `MediaAttachment`:
-
 ```php
 use ChatFlow\View\MediaAttachment;
 use ChatFlow\View\View;
 
-$ctx->reply(
-    View::text('Product photo')
-        ->addMedia(new MediaAttachment('image', 'https://example.com/photo.jpg'))
-);
+$ctx->reply(View::text('Product photo')->addMedia(new MediaAttachment('image', 'https://example.com/photo.jpg')));
 ```
 
-Telegram maps:
-
-- `image` to `sendPhoto`.
-- `photo` to `sendPhoto`.
-- `document` to `sendDocument`.
-- `video` to `sendVideo`.
-- `audio` to `sendAudio`.
-- `animation` to `sendAnimation`.
-
-Local file paths are sent through Telegram SDK `InputFile`.
+Telegram maps `image` and `photo` to `sendPhoto`, `document` to `sendDocument`, `video` to
+`sendVideo`, `audio` to `sendAudio`, `animation` to `sendAnimation`. Local file paths are sent
+through the SDK `InputFile`. `render()` of a media view edits the current media message when it
+is an editable media type.
 
 ## Inbound Attachments
 
-Incoming Telegram media is normalized into `InboundAttachment` objects.
-
-Supported inbound types:
-
-- `photo`
-- `document`
-- `video`
-- `audio`
-- `voice`
-- `animation`
-- `sticker`
-- `video_note`
-
-Metadata preserves Telegram values where available:
-
-- `file_id`
-- `file_unique_id`
-- `caption`
-- `media_group_id`
-- `message_id`
-- dimensions
-- duration
-- mime type
-- file size
+Incoming Telegram media is normalized into `InboundAttachment` objects for `photo`, `document`,
+`video`, `audio`, `voice`, `animation`, `sticker` and `video_note`. Metadata keeps `file_id`,
+`file_unique_id`, `caption`, `media_group_id`, `message_id`, dimensions, duration, mime type and
+file size where Telegram provides them.
 
 ## Media Routes
-
-Use `onMedia()` for media handling outside active scenes:
 
 ```php
 $bot->onMedia('photo', static function (Context $ctx): void {
@@ -65,32 +32,21 @@ $bot->onMedia('photo', static function (Context $ctx): void {
 $bot->onMedia('any', $handler);
 ```
 
-When a scene is active, media is handled by the scene flow instead of the out-of-band media handler.
+Media handlers run through middleware with session access, but only when no scene is active.
+Inside a scene the attachment goes to the scene: an `onMedia()` shortcut of the pending
+interaction, otherwise `handle()`.
 
-## Downloading Telegram Files
+## Downloading Files
 
-`Context::downloadAttachment()` delegates to Telegram file API:
+`$ctx->downloadAttachment($dir)` downloads the first attachment through the Bot API and returns
+the local path, or `null`.
 
-```php
-$localPath = $ctx->downloadAttachment(__DIR__ . '/storage/downloads');
-```
-
-The first attachment file id is used.
-
-## TelegramPublisher Media
-
-Use `TelegramPublisher` when the application must immediately receive Telegram `message_id` values:
+## Publisher Media
 
 ```php
-use ChatFlow\Telegram\Media\TelegramMedia;
-use ChatFlow\Telegram\Media\TelegramMediaSource;
-
-$result = $publisher->sendMedia(
-    chatId: $chatId,
-    media: new TelegramMedia('photo', TelegramMediaSource::fileId($fileId), 'Caption')
-);
-
+$result = $publisher->sendMedia($chatId, new TelegramMedia('photo', TelegramMediaSource::fileId($fileId), 'Caption'));
 $messageId = $result->getMessageId();
 ```
 
-For media groups, local paths are not supported by `TelegramMediaSource::toMediaGroupApiValue()` because multipart `attach://` handling is not implemented in the publisher.
+Media groups through the publisher accept URLs and file ids; local paths are not supported
+because multipart `attach://` handling is not implemented.
