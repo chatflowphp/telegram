@@ -7,6 +7,8 @@ namespace ChatFlow\Telegram\Examples\MiniShop;
 use ChatFlow\Contracts\FlowInterface;
 use ChatFlow\Contracts\FlowRuntimeInterface;
 use ChatFlow\Core\Context;
+use ChatFlow\Scene\RootScene;
+use ChatFlow\Scene\SceneContext;
 use ChatFlow\View\Action;
 use ChatFlow\View\View;
 use Throwable;
@@ -24,8 +26,14 @@ final class MiniShopFlow implements FlowInterface
     {
         $runtime->getContainer()->set(OrderService::class, $this->orderService);
 
-        $runtime->registerScene(ShopScene::class);
-        $runtime->registerScene(CheckoutScene::class);
+        $runtime->registerScene(ShopScene::class, 'Shop');
+        $runtime->registerScene(CheckoutScene::class, 'Checkout');
+
+        // The screen map: the storefront opens from the root, checkout needs a non-empty cart,
+        // and checkout can only go back to the storefront.
+        $runtime->allowTransition(RootScene::ID, ShopScene::class);
+        $runtime->allowTransition(ShopScene::class, CheckoutScene::class, static fn(SceneContext $session): bool => $session->getArray('cart') !== []);
+        $runtime->allowTransition(CheckoutScene::class, ShopScene::class);
 
         $runtime->middleware([
             MiniShopVisitorMiddleware::class,
@@ -33,13 +41,15 @@ final class MiniShopFlow implements FlowInterface
 
         $runtime->onCommand('start', static function (Context $ctx): void {
             $visitor = $ctx->get('visitor', 'guest');
+            $visitor = \is_string($visitor) ? $visitor : 'guest';
 
+            $ctx->leave();
             $ctx->reply(
                 View::text(
                     "Telegram MiniShop\n\n" .
                     "Session owner: {$visitor}\n\n" .
-                    'This Telegram example covers commands, inline callbacks, scenes, smart message edits, media replies and checkout validation.'
-                )->addActionRow(new Action('landing:shop', 'Open storefront'))
+                    'This Telegram example covers commands, inline callbacks, scenes, smart message edits, media replies and checkout validation.',
+                )->addActionRow(new Action('landing:shop', 'Open storefront')),
             );
         });
 
@@ -50,17 +60,10 @@ final class MiniShopFlow implements FlowInterface
 
             $ctx->ack('Opening storefront');
             $ctx->enter(ShopScene::class);
-        });
+        })->global();
 
-        $runtime->onException(ProductNotFoundException::class, static function (
-            Throwable $exception,
-            ?Context $ctx
-        ): void {
-            if ($ctx === null) {
-                return;
-            }
-
-            $ctx->ack('This product is no longer available.', true);
+        $runtime->onException(ProductNotFoundException::class, static function (Throwable $exception, ?Context $ctx): void {
+            $ctx?->ack('This product is no longer available.', true);
         });
 
         $runtime->setErrorHandler(static function (Throwable $exception, Context $ctx): void {

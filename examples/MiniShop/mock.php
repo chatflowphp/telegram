@@ -70,7 +70,7 @@ foreach ($orderService->getOrders() as $order) {
         "- Order #%d, phone %s, total %s RUB\n",
         $order['id'],
         $order['phone'],
-        number_format($order['total'], 0, '.', ' ')
+        number_format($order['total'], 0, '.', ' '),
     );
 }
 
@@ -83,6 +83,6 @@ foreach ($tester->getRequests() as $request) {
         "- %s %s %s\n",
         $request['method'],
         $request['endpoint'],
-        is_string($text) && $text !== '' ? '[' . str_replace("\n", ' ', $text) . ']' : ''
+        is_string($text) && $text !== '' ? '[' . str_replace("\n", ' ', $text) . ']' : '',
     );
 }

@@ -13,35 +13,28 @@ use ChatFlow\Telegram\Tests\Fixtures\SurveyScene;
 use PHPUnit\Framework\TestCase;
 use Telegram\Bot\Api;
 
-class FlowTest extends TestCase
+final class FlowTest extends TestCase
 {
     private TelegramBotTester $tester;
 
-    private Bot $bot;
-
     protected function setUp(): void
     {
-        // 1. Подготовка заглушки сети
         $mockClient = new MockHttpClient();
-
-        // 2. Инициализация API с заглушкой
         $api = new Api('TEST_TOKEN', false, $mockClient);
 
-        $this->bot = new Bot('TEST_TOKEN', __DIR__, api: $api);
-
-        $this->bot->useStorage(new MemoryStorage());
-
-        $this->bot->registerScene(SurveyScene::class);
-
-        // Используем type-hint Context для корректного внедрения зависимости
-        $this->bot->command('start', function (Context $ctx) {
+        $bot = new Bot('TEST_TOKEN', __DIR__, api: $api, storage: new MemoryStorage());
+        $bot->registerScene(SurveyScene::class);
+        $bot->command('start', static function (Context $ctx): void {
             $ctx->enter(SurveyScene::class);
         });
+        $bot->command('help', static function (Context $ctx): void {
+            $ctx->reply('Справка');
+        });
 
-        $this->tester = new TelegramBotTester($this->bot, $mockClient);
+        $this->tester = new TelegramBotTester($bot, $mockClient);
     }
 
-    public function test_full_survey_flow(): void
+    public function testFullSurveyFlow(): void
     {
         $this->tester
             ->sendCommand('/start')
@@ -54,6 +47,7 @@ class FlowTest extends TestCase
             ->clear()
             ->sendMessage('not a number')
             ->assertSee('Возраст должен быть числом')
+            ->assertScene(SurveyScene::class)
             ->clear()
             ->sendMessage('30')
             ->assertSessionHas('age', 30)
@@ -62,6 +56,21 @@ class FlowTest extends TestCase
             ->clear()
             ->clickSceneAction([SurveyScene::class, 'onOk'])
             ->assertNotInScene()
-            ->assertSee('Всего доброго!');
+            ->assertSee('Всего доброго!')
+            ->assertEndpointCalled('answerCallbackQuery');
+    }
+
+    public function testCommandsInterruptTheSceneWithoutLeavingIt(): void
+    {
+        $this->tester
+            ->sendCommand('/start')
+            ->clear()
+            ->sendCommand('/help')
+            ->assertSee('Справка')
+            ->assertResult('success', 'global_route_processed')
+            ->assertScene(SurveyScene::class)
+            ->clear()
+            ->sendMessage('Alex')
+            ->assertSessionHas('name', 'Alex');
     }
 }

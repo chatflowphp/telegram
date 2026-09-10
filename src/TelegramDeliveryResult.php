@@ -14,8 +14,7 @@ final class TelegramDeliveryResult
         private readonly ?int $messageId,
         private readonly string $endpoint,
         private readonly array $rawResponse,
-    ) {
-    }
+    ) {}
 
     public function getChatId(): string|int
     {

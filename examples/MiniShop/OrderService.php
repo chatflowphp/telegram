@@ -50,16 +50,16 @@ class OrderService
         foreach ($cartItems as $item) {
             $itemTotal = $item['price'] * $item['quantity'];
             $total += $itemTotal;
-            $lines[] = sprintf(
+            $lines[] = \sprintf(
                 '• %s (%d pc.) - %s RUB',
                 $item['name'],
                 $item['quantity'],
-                number_format($itemTotal, 0, '.', ' ')
+                number_format($itemTotal, 0, '.', ' '),
             );
         }
 
         $lines[] = '';
-        $lines[] = sprintf('Total: %s RUB', number_format($total, 0, '.', ' '));
+        $lines[] = \sprintf('Total: %s RUB', number_format($total, 0, '.', ' '));
 
         return implode("\n", $lines);
     }

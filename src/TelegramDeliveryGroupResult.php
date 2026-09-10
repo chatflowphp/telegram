@@ -7,7 +7,7 @@ namespace ChatFlow\Telegram;
 final class TelegramDeliveryGroupResult
 {
     /**
-     * @param list<int>            $messageIds
+     * @param list<int> $messageIds
      * @param array<string, mixed> $rawResponse
      */
     public function __construct(
@@ -15,8 +15,7 @@ final class TelegramDeliveryGroupResult
         private readonly array $messageIds,
         private readonly string $endpoint,
         private readonly array $rawResponse,
-    ) {
-    }
+    ) {}
 
     public function getChatId(): string|int
     {

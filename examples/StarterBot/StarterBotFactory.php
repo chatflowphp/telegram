@@ -24,9 +24,9 @@ final class StarterBotFactory
             basePath: $basePath,
             api: $api,
             runtimeObserver: $runtimeObserver,
+            storage: $storage ?? new FileStorage($basePath . '/storage/starter-bot'),
         );
 
-        $bot->useStorage($storage ?? new FileStorage($basePath . '/storage/starter-bot'));
         (new StarterBotFlow())->register($bot);
 
         return $bot;

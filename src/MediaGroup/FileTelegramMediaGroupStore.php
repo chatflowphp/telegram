@@ -4,105 +4,107 @@ declare(strict_types=1);
 
 namespace ChatFlow\Telegram\MediaGroup;
 
+use JsonException;
+use RuntimeException;
+
+/**
+ * Keeps pending album parts as JSON files grouped per media group. Stale groups are removed
+ * opportunistically on storePart() with the configured probability, never on construction.
+ */
 final class FileTelegramMediaGroupStore implements TelegramMediaGroupStoreInterface
 {
     public function __construct(
         private readonly string $directory,
         private readonly int $ttlSeconds = 300,
-        private readonly int $cleanupProbability = 100,
-    ) {
-        $this->ensureDirectory();
-        $this->maybeCleanupExpired();
-    }
+        private readonly int $cleanupProbability = 5,
+    ) {}
 
     public function storePart(string $groupKey, int $messageId, array $update): void
     {
         $this->maybeCleanupExpired();
 
         $dir = $this->groupDirectory($groupKey);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+
+        if (!is_dir($dir) && !mkdir($dir, 0o755, true) && !is_dir($dir)) {
+            throw new RuntimeException(\sprintf('Failed to create Telegram media group directory "%s".', $dir));
         }
 
-        file_put_contents(
-            $dir . '/' . $messageId . '.json',
-            json_encode($update, JSON_THROW_ON_ERROR),
-            LOCK_EX
-        );
+        try {
+            $encoded = json_encode($update, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
+        } catch (JsonException $e) {
+            throw new RuntimeException('Telegram media group part cannot be stored: ' . $e->getMessage(), 0, $e);
+        }
+
+        if (file_put_contents($dir . '/' . $messageId . '.json', $encoded, LOCK_EX) === false) {
+            throw new RuntimeException(\sprintf('Failed to write Telegram media group part %d.', $messageId));
+        }
     }
 
     public function getParts(string $groupKey): array
     {
         $dir = $this->groupDirectory($groupKey);
+
         if (!is_dir($dir)) {
             return [];
         }
 
         $parts = [];
-        foreach (glob($dir . '/*.json') ?: [] as $path) {
+        $paths = glob($dir . '/*.json');
+
+        foreach ($paths === false ? [] : $paths as $path) {
             $contents = file_get_contents($path);
+
             if ($contents === false) {
                 continue;
             }
 
-            $decoded = json_decode($contents, true);
-            if (!is_array($decoded)) {
+            try {
+                $decoded = json_decode($contents, true, 512, JSON_THROW_ON_ERROR);
+            } catch (JsonException) {
                 continue;
             }
 
-            $messageId = (int) basename($path, '.json');
-            $parts[] = [
-                'message_id' => $messageId,
-                'update' => $decoded,
-            ];
+            if (!\is_array($decoded)) {
+                continue;
+            }
+
+            $update = [];
+
+            foreach ($decoded as $key => $value) {
+                $update[(string) $key] = $value;
+            }
+
+            $parts[] = ['message_id' => (int) basename($path, '.json'), 'update' => $update];
         }
 
-        usort($parts, static fn (array $a, array $b): int => $a['message_id'] <=> $b['message_id']);
+        usort($parts, static fn(array $a, array $b): int => $a['message_id'] <=> $b['message_id']);
 
         return $parts;
     }
 
     public function deleteGroup(string $groupKey): void
     {
-        $dir = $this->groupDirectory($groupKey);
-        if (!is_dir($dir)) {
-            return;
-        }
-
-        foreach (glob($dir . '/*.json') ?: [] as $path) {
-            @unlink($path);
-        }
-
-        @rmdir($dir);
+        $this->removeGroupDirectory($this->groupDirectory($groupKey));
     }
 
     public function cleanupExpired(): void
     {
-        if ($this->ttlSeconds <= 0) {
+        if ($this->ttlSeconds <= 0 || !is_dir($this->directory)) {
             return;
         }
 
         $expiresBefore = time() - $this->ttlSeconds;
-        foreach (glob(rtrim($this->directory, '/') . '/*', GLOB_ONLYDIR) ?: [] as $dir) {
-            $latestModifiedAt = $this->latestModifiedAt($dir);
+        $dirs = glob(rtrim($this->directory, '/') . '/*', GLOB_ONLYDIR);
+
+        foreach ($dirs === false ? [] : $dirs as $dir) {
             clearstatcache(true, $dir);
-            $modifiedAt = $latestModifiedAt ?? filemtime($dir);
+            $modifiedAt = $this->latestModifiedAt($dir) ?? filemtime($dir);
+
             if ($modifiedAt === false || $modifiedAt > $expiresBefore) {
                 continue;
             }
 
-            foreach (glob($dir . '/*.json') ?: [] as $path) {
-                @unlink($path);
-            }
-
-            @rmdir($dir);
-        }
-    }
-
-    private function ensureDirectory(): void
-    {
-        if (!is_dir($this->directory)) {
-            mkdir($this->directory, 0755, true);
+            $this->removeGroupDirectory($dir);
         }
     }
 
@@ -117,12 +119,30 @@ final class FileTelegramMediaGroupStore implements TelegramMediaGroupStoreInterf
         }
     }
 
+    private function removeGroupDirectory(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+
+        $paths = glob($dir . '/*.json');
+
+        foreach ($paths === false ? [] : $paths as $path) {
+            @unlink($path);
+        }
+
+        @rmdir($dir);
+    }
+
     private function latestModifiedAt(string $dir): ?int
     {
         $latest = null;
-        foreach (glob($dir . '/*.json') ?: [] as $path) {
+        $paths = glob($dir . '/*.json');
+
+        foreach ($paths === false ? [] : $paths as $path) {
             clearstatcache(true, $path);
             $modifiedAt = filemtime($path);
+
             if ($modifiedAt === false) {
                 continue;
             }
@@ -135,7 +155,7 @@ final class FileTelegramMediaGroupStore implements TelegramMediaGroupStoreInterf
 
     private function groupDirectory(string $groupKey): string
     {
-        $safeKey = preg_replace('/[^a-zA-Z0-9_-]/', '_', $groupKey) ?? $groupKey;
+        $safeKey = (string) preg_replace('/[^a-zA-Z0-9_-]/', '_', $groupKey);
 
         return rtrim($this->directory, '/') . '/' . $safeKey;
     }

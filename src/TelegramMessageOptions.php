@@ -77,7 +77,7 @@ final class TelegramMessageOptions
             'selective' => $this->selective,
             'protect_content' => $this->protectContent,
             'extra' => SerializableValueValidator::normalizeMap($this->extra, 'telegram message options extra'),
-        ], static fn (mixed $value): bool => $value !== null && $value !== []);
+        ], static fn(mixed $value): bool => $value !== null && $value !== []);
     }
 
     /**
@@ -85,18 +85,20 @@ final class TelegramMessageOptions
      */
     public static function fromMeta(array $meta): self
     {
-        $extra = $meta['extra'] ?? [];
-        if (!is_array($extra)) {
-            $extra = [];
+        $rawExtra = $meta['extra'] ?? [];
+        $extra = [];
+
+        foreach (\is_array($rawExtra) ? $rawExtra : [] as $key => $value) {
+            $extra[(string) $key] = $value;
         }
 
         return new self(
-            parseMode: isset($meta['parse_mode']) && is_string($meta['parse_mode']) ? $meta['parse_mode'] : null,
-            disableWebPagePreview: isset($meta['disable_web_page_preview']) && is_bool($meta['disable_web_page_preview']) ? $meta['disable_web_page_preview'] : null,
-            replyToMessageId: isset($meta['reply_to_message_id']) && is_int($meta['reply_to_message_id']) ? $meta['reply_to_message_id'] : null,
-            forceReply: isset($meta['force_reply']) && is_bool($meta['force_reply']) ? $meta['force_reply'] : false,
-            selective: isset($meta['selective']) && is_bool($meta['selective']) ? $meta['selective'] : null,
-            protectContent: isset($meta['protect_content']) && is_bool($meta['protect_content']) ? $meta['protect_content'] : null,
+            parseMode: isset($meta['parse_mode']) && \is_string($meta['parse_mode']) ? $meta['parse_mode'] : null,
+            disableWebPagePreview: isset($meta['disable_web_page_preview']) && \is_bool($meta['disable_web_page_preview']) ? $meta['disable_web_page_preview'] : null,
+            replyToMessageId: isset($meta['reply_to_message_id']) && \is_int($meta['reply_to_message_id']) ? $meta['reply_to_message_id'] : null,
+            forceReply: isset($meta['force_reply']) && \is_bool($meta['force_reply']) ? $meta['force_reply'] : false,
+            selective: isset($meta['selective']) && \is_bool($meta['selective']) ? $meta['selective'] : null,
+            protectContent: isset($meta['protect_content']) && \is_bool($meta['protect_content']) ? $meta['protect_content'] : null,
             extra: $extra,
         );
     }

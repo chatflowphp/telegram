@@ -13,9 +13,8 @@ use Throwable;
 final class TypingMiddleware implements MiddlewareInterface
 {
     public function __construct(
-        private readonly Api $api
-    ) {
-    }
+        private readonly Api $api,
+    ) {}
 
     public function process(Context $ctx, callable $next): mixed
     {

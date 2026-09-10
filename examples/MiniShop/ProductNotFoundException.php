@@ -13,7 +13,7 @@ class ProductNotFoundException extends RuntimeException implements UserFriendlyE
     public function __construct(
         string $message = 'Product not found',
         int $code = 0,
-        ?Throwable $previous = null
+        ?Throwable $previous = null,
     ) {
         parent::__construct($message, $code, $previous);
     }

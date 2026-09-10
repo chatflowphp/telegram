@@ -63,6 +63,6 @@ foreach ($tester->getRequests() as $request) {
         "- %s %s %s\n",
         $request['method'],
         $request['endpoint'],
-        is_string($text) && $text !== '' ? '[' . str_replace("\n", ' ', $text) . ']' : ''
+        is_string($text) && $text !== '' ? '[' . str_replace("\n", ' ', $text) . ']' : '',
     );
 }

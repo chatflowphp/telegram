@@ -11,9 +11,7 @@ use ChatFlow\View\View;
 
 final class TelegramContext
 {
-    public function __construct(private readonly Context $context)
-    {
-    }
+    public function __construct(private readonly Context $context) {}
 
     public function core(): Context
     {
@@ -41,7 +39,7 @@ final class TelegramContext
         $messageId = $replyToMessageId ?? $this->getMessageId();
 
         return $this->context->reply(
-            TelegramView::options($view, $options->withReplyToMessageId($messageId)->withForceReply())
+            TelegramView::options($view, $options->withReplyToMessageId($messageId)->withForceReply()),
         );
     }
 
@@ -49,14 +47,14 @@ final class TelegramContext
     {
         $chatId = $this->context->getMessageRef()?->get('chat_id');
 
-        return is_int($chatId) || is_string($chatId) ? $chatId : $this->context->getConversationId();
+        return \is_int($chatId) || \is_string($chatId) ? $chatId : $this->context->getConversationId();
     }
 
     public function getMessageId(): ?int
     {
         $messageId = $this->context->getMessageRef()?->get('message_id');
 
-        return is_int($messageId) ? $messageId : null;
+        return \is_int($messageId) ? $messageId : null;
     }
 
     public function getCallbackQueryId(): ?string
@@ -64,7 +62,7 @@ final class TelegramContext
         $callbackQueryId = $this->context->getMessageRef()?->get('callback_query_id')
             ?? $this->context->getMessageRef()?->getReplyToken();
 
-        return is_string($callbackQueryId) && $callbackQueryId !== '' ? $callbackQueryId : null;
+        return \is_string($callbackQueryId) && $callbackQueryId !== '' ? $callbackQueryId : null;
     }
 
     /**
@@ -74,6 +72,16 @@ final class TelegramContext
     {
         $raw = $this->context->getMetadata()['telegram'] ?? [];
 
-        return is_array($raw) ? $raw : [];
+        if (!\is_array($raw)) {
+            return [];
+        }
+
+        $update = [];
+
+        foreach ($raw as $key => $value) {
+            $update[(string) $key] = $value;
+        }
+
+        return $update;
     }
 }

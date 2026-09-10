@@ -5,16 +5,15 @@ declare(strict_types=1);
 namespace ChatFlow\Telegram\Examples\MiniShop;
 
 use ChatFlow\Core\Context;
-use ChatFlow\FSM\BaseScene;
+use ChatFlow\Scene\BaseScene;
 use ChatFlow\View\Choice;
 use ChatFlow\View\View;
 
 final class CheckoutScene extends BaseScene
 {
     public function __construct(
-        private readonly OrderService $orderService
-    ) {
-    }
+        private readonly OrderService $orderService,
+    ) {}
 
     public function handle(Context $ctx): void
     {
@@ -22,20 +21,20 @@ final class CheckoutScene extends BaseScene
         $cartItems = $ctx->session()->get('cart_items', []);
 
         if ($cartItems === []) {
-            $ctx->clearHistory();
-            $ctx->enter(ShopScene::class);
+            $ctx->reply('Your cart is empty.');
+            $ctx->back();
 
             return;
         }
 
         $total = $this->orderService->calculateTotal($cartItems);
-        $this->ask(
+        $ctx->ask(
             View::text(
-                sprintf(
+                \sprintf(
                     "Checkout\n\nOrder total: %s RUB\nEnter a phone number in +79991234567 format.",
-                    number_format($total, 0, '.', ' ')
-                )
-            )->addChoiceRow(new Choice('Cancel checkout', 'Cancel checkout'))
+                    number_format($total, 0, '.', ' '),
+                ),
+            )->addChoiceRow(new Choice('Cancel checkout', 'Cancel checkout')),
         )
             ->validate('regex:/^(\+7|7|8)\d{10}$/', 'Use +79991234567 or 89991234567.')
             ->onText('Cancel checkout', [$this, 'onCancelCheckout'])
@@ -51,8 +50,7 @@ final class CheckoutScene extends BaseScene
     public function onCancelCheckout(Context $ctx): void
     {
         $ctx->reply('Checkout cancelled.');
-        $ctx->clearHistory();
-        $ctx->enter(ShopScene::class);
+        $ctx->back();
     }
 
     public function getTitle(): string
@@ -77,17 +75,16 @@ final class CheckoutScene extends BaseScene
         $ctx->reply(
             MiniShopFlow::landingView(
                 label: 'Back to storefront',
-                text: sprintf(
+                text: \sprintf(
                     "Order #%d is confirmed.\nTotal: %s RUB\nPhone: %s",
                     $orderId,
                     number_format($total, 0, '.', ' '),
-                    $phone
-                )
-            )
+                    $phone,
+                ),
+            ),
         );
 
-        $ctx->clearHistory();
-        $this->leave();
+        $ctx->leave();
     }
 
     /**

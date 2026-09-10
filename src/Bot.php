@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace ChatFlow\Telegram;
 
-use ChatFlow\Config\Config;
-use ChatFlow\Config\ConfigInterface;
 use ChatFlow\Container\Container;
 use ChatFlow\Container\ContainerInterface;
 use ChatFlow\Contracts\FlowRuntimeInterface;
@@ -13,20 +11,18 @@ use ChatFlow\Contracts\InboundEventInterface;
 use ChatFlow\Core\Application;
 use ChatFlow\Core\Context;
 use ChatFlow\Core\Result;
-use ChatFlow\Exception\ConfigException;
-use ChatFlow\Exception\ContainerException;
-use ChatFlow\Exception\DependencyException;
 use ChatFlow\Exception\ErrorHandlerInterface;
 use ChatFlow\Exception\ExceptionRegistry;
+use ChatFlow\Exception\LogicException;
+use ChatFlow\Exception\UnsupportedInputException;
 use ChatFlow\Exception\ValidationException;
-use ChatFlow\FSM\BaseScene;
-use ChatFlow\FSM\SceneRegistry;
-use ChatFlow\FSM\StateManager;
-use ChatFlow\Middleware\MiddlewareInterface;
 use ChatFlow\Observability\RuntimeObserverInterface;
-use ChatFlow\Provider\ProviderInterface;
 use ChatFlow\Routing\Route;
 use ChatFlow\Routing\Router;
+use ChatFlow\Scene\ConversationManager;
+use ChatFlow\Scene\SceneRegistry;
+use ChatFlow\Scene\SceneTransitions;
+use ChatFlow\Storage\Drivers\MemoryStorage;
 use ChatFlow\Storage\StorageInterface;
 use ChatFlow\Telegram\Callback\FileTelegramCallbackStore;
 use ChatFlow\Telegram\Callback\TelegramCallbackPayloadEncoder;
@@ -34,7 +30,6 @@ use ChatFlow\Telegram\MediaGroup\FileTelegramMediaGroupStore;
 use ChatFlow\Telegram\MediaGroup\TelegramMediaGroupCollector;
 use ChatFlow\Telegram\UI\TelegramScreenManager;
 use ChatFlow\Validation\ValidationRegistry;
-use DI\ContainerBuilder;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Telegram\Bot\Api;
@@ -43,127 +38,175 @@ use Telegram\Bot\Exceptions\TelegramSDKException;
 use Telegram\Bot\Objects\Update;
 use Throwable;
 
+/**
+ * Telegram-facing runtime facade: wires the SDK, the adapter and the core Application, and
+ * exposes the flow registration API.
+ *
+ * Configuration (routes, scenes, storage, middleware) happens first; the Application is built on
+ * the first handled update.
+ */
 class Bot implements FlowRuntimeInterface
 {
-    /** @var array<MiddlewareInterface|class-string<MiddlewareInterface>> */
+    private readonly ContainerInterface $container;
+
+    private readonly LoggerInterface $logger;
+
+    private readonly Api $api;
+
+    private readonly Router $router;
+
+    private readonly SceneRegistry $scenes;
+
+    private readonly SceneTransitions $transitions;
+
+    private readonly ValidationRegistry $validation;
+
+    private readonly ErrorHandlerInterface $errorHandler;
+
+    private readonly TelegramPublisher $publisher;
+
+    private readonly TelegramCallbackPayloadEncoder $callbackEncoder;
+
+    private readonly TelegramMediaGroupCollector $mediaGroupCollector;
+
+    private readonly TelegramPlatformAdapter $adapter;
+
+    private readonly ?RuntimeObserverInterface $runtimeObserver;
+
+    private ?StorageInterface $storage;
+
+    private ?int $sessionTtlSeconds;
+
+    private ?Application $application = null;
+
+    /**
+     * @var list<\ChatFlow\Middleware\MiddlewareInterface|class-string<\ChatFlow\Middleware\MiddlewareInterface>>
+     */
     private array $middlewares = [];
 
-    private Router $router;
-
-    private ContainerInterface $container;
-
-    private ErrorHandlerInterface $errorHandler;
-
-    private SceneRegistry $sceneRegistry;
-
-    private LoggerInterface $logger;
-
-    private ValidationRegistry $validationRegistry;
-
-    private ConfigInterface $config;
-
-    private TelegramPlatformAdapter $adapter;
-
-    private ?StateManager $stateManager = null;
-
-    private Application $application;
-
-    private ?RuntimeObserverInterface $runtimeObserver;
-
-    private TelegramPublisher $publisher;
-
-    private TelegramMediaGroupCollector $mediaGroupCollector;
-
-    /** @var array<string, callable> */
+    /**
+     * @var array<string, callable>
+     */
     private array $telegramEventHandlers = [];
 
-    /** @var array<string, callable> */
+    /**
+     * @var array<string, callable>
+     */
     private array $mediaHandlers = [];
 
     /**
-     * @throws DependencyException
+     * @param string $basePath Directory for default file stores (`storage/telegram-callbacks`, `storage/telegram-media-groups`).
+     * @param string|null $callbackSecret Key used to sign inline callback payloads; derived from the token by default.
+     *
      * @throws TelegramSDKException
-     * @throws ConfigException
-     * @throws ContainerException
      */
     public function __construct(
         private readonly string $token,
-        string $basePath,
+        private readonly string $basePath,
         ?LoggerInterface $logger = null,
         ?ContainerInterface $container = null,
         private readonly ?string $webhookSecret = null,
-        ?ConfigInterface $config = null,
         ?Api $api = null,
         ?ErrorHandlerInterface $errorHandler = null,
         ?Router $router = null,
         ?SceneRegistry $sceneRegistry = null,
         ?ValidationRegistry $validationRegistry = null,
-        ?Application $application = null,
         ?RuntimeObserverInterface $runtimeObserver = null,
         ?TelegramCallbackPayloadEncoder $callbackPayloadEncoder = null,
         ?TelegramMediaGroupCollector $mediaGroupCollector = null,
         ?TelegramPublisher $publisher = null,
+        ?StorageInterface $storage = null,
+        ?int $sessionTtlSeconds = null,
+        bool $debug = false,
+        ?string $callbackSecret = null,
     ) {
-        $this->runtimeObserver = $runtimeObserver;
-        $this->config = $config ?? new Config($basePath);
-        $this->container = $container ?? $this->createContainer();
-        $this->container->set(ConfigInterface::class, $this->config);
-
+        $this->container = $container ?? new Container();
         $this->logger = $logger ?? new NullLogger();
+        $this->runtimeObserver = $runtimeObserver;
         $this->api = $api ?? new Api($this->token);
+        $this->storage = $storage;
+        $this->sessionTtlSeconds = $sessionTtlSeconds;
 
         $fileDownloader = new FileDownloader($this->api);
         $this->publisher = $publisher ?? new TelegramPublisher($this->api);
-        $this->container->set(Api::class, $this->api);
-        $this->container->set(FileDownloader::class, $fileDownloader);
-        $this->container->set(TelegramPublisher::class, $this->publisher);
-
         $this->router = $router ?? new Router();
-        $this->validationRegistry = $validationRegistry ?? new ValidationRegistry($this->container);
-        $this->container->set(ValidationRegistry::class, $this->validationRegistry);
-
-        $this->sceneRegistry = $sceneRegistry ?? new SceneRegistry($this->container);
-        $this->errorHandler = $errorHandler ?? new ExceptionRegistry($this->logger, $this->config);
+        $this->scenes = $sceneRegistry ?? new SceneRegistry($this->container);
+        $this->transitions = new SceneTransitions($this->scenes);
+        $this->validation = $validationRegistry ?? new ValidationRegistry($this->container);
+        $this->errorHandler = $errorHandler ?? new ExceptionRegistry($this->logger, $debug);
         $this->registerTelegramDefaultErrorPolicy();
 
-        $callbackPayloadEncoder ??= new TelegramCallbackPayloadEncoder(
-            new FileTelegramCallbackStore($basePath . '/storage/telegram-callbacks')
+        $this->callbackEncoder = $callbackPayloadEncoder ?? new TelegramCallbackPayloadEncoder(
+            new FileTelegramCallbackStore($this->basePath . '/storage/telegram-callbacks'),
+            $callbackSecret ?? self::deriveCallbackSecret($this->token),
         );
-        $this->container->set(TelegramCallbackPayloadEncoder::class, $callbackPayloadEncoder);
-
         $this->mediaGroupCollector = $mediaGroupCollector ?? new TelegramMediaGroupCollector(
-            new FileTelegramMediaGroupStore($basePath . '/storage/telegram-media-groups')
+            new FileTelegramMediaGroupStore($this->basePath . '/storage/telegram-media-groups'),
         );
-        $this->container->set(TelegramMediaGroupCollector::class, $this->mediaGroupCollector);
 
         $screenManager = new TelegramScreenManager($this->publisher);
         $this->adapter = new TelegramPlatformAdapter(
             $this->api,
             $fileDownloader,
-            $callbackPayloadEncoder,
+            $this->callbackEncoder,
             $screenManager,
-            $this->logger
+            $this->logger,
         );
+
+        $this->container->set(Api::class, $this->api);
+        $this->container->set(FileDownloader::class, $fileDownloader);
+        $this->container->set(TelegramPublisher::class, $this->publisher);
+        $this->container->set(TelegramCallbackPayloadEncoder::class, $this->callbackEncoder);
+        $this->container->set(TelegramMediaGroupCollector::class, $this->mediaGroupCollector);
         $this->container->set(TelegramPlatformAdapter::class, $this->adapter);
         $this->container->set(TelegramScreenManager::class, $screenManager);
-
-        $this->application = $application ?? $this->createApplication();
+        $this->container->set(self::class, $this);
     }
 
-    private Api $api;
+    // -- Telegram sugar ------------------------------------------------------------------------
 
-    public function command(string $name, callable $handler): self
+    public function command(string $name, callable $handler): static
     {
         $this->router->onCommand($name, $handler);
 
         return $this;
     }
 
-    public function prefix(string $prefix, callable $handler): self
+    public function prefix(string $prefix, callable $handler): static
     {
         $this->router->onActionPrefix($prefix, $handler);
 
         return $this;
+    }
+
+    /**
+     * Handles a Telegram update type that is not a message or a callback (`my_chat_member`,
+     * `chat_member`). The handler runs as a global route with middleware and session access and
+     * receives the raw update as `array $update`.
+     */
+    public function onTelegramEvent(string $updateType, callable $handler): static
+    {
+        $this->telegramEventHandlers[$updateType] = $handler;
+
+        return $this;
+    }
+
+    /**
+     * Handles messages with attachments of the given type (`any` for every type) when no scene is
+     * active. Inside scenes attachments go to the scene.
+     */
+    public function onMedia(string $type, callable $handler): static
+    {
+        $this->mediaHandlers[$type] = $handler;
+
+        return $this;
+    }
+
+    // -- FlowRuntimeInterface ------------------------------------------------------------------
+
+    public function onCommand(string $command, callable $handler): Route
+    {
+        return $this->router->onCommand($command, $handler);
     }
 
     public function onTextPrefix(string $prefix, callable $handler): Route
@@ -174,11 +217,6 @@ class Bot implements FlowRuntimeInterface
     public function onTextRegex(string $pattern, callable $handler): Route
     {
         return $this->router->onTextRegex($pattern, $handler);
-    }
-
-    public function onCommand(string $command, callable $handler): Route
-    {
-        return $this->router->onCommand($command, $handler);
     }
 
     public function onAction(string $action, callable $handler): Route
@@ -201,58 +239,154 @@ class Bot implements FlowRuntimeInterface
         return $this->router->fallback($handler);
     }
 
-    public function onTelegramEvent(string $updateType, callable $handler): self
+    public function registerScene(string $sceneClass, ?string $label = null): static
     {
-        $this->telegramEventHandlers[$updateType] = $handler;
+        $this->scenes->register($sceneClass, $label);
 
         return $this;
     }
 
-    public function onMedia(string $type, callable $handler): self
+    public function allowTransition(string $from, string $to, ?callable $guard = null): static
     {
-        $this->mediaHandlers[$type] = $handler;
+        $this->transitions->allow($from, $to, $guard);
 
         return $this;
     }
 
-    public function handle(Update|array $update): Result
+    public function middleware(array $middlewares): static
     {
-        $raw = $update instanceof Update ? $update->toArray() : $update;
-        $telegramUpdateType = $this->detectTelegramUpdateType($raw);
-
-        if ($telegramUpdateType !== null && isset($this->telegramEventHandlers[$telegramUpdateType])) {
-            return $this->handleOutOfBand($this->adapter->createInboundEvent($raw), $this->telegramEventHandlers[$telegramUpdateType], $raw);
+        foreach ($middlewares as $middleware) {
+            $this->middlewares[] = $middleware;
         }
 
-        $collectedUpdate = $this->mediaGroupCollector->collect($raw);
-        if ($collectedUpdate === null) {
+        $this->application?->middleware($middlewares);
+
+        return $this;
+    }
+
+    public function setErrorHandler(callable $handler): static
+    {
+        $this->errorHandler->register(Throwable::class, static function (Throwable $exception, ?Context $context) use ($handler): void {
+            if ($context !== null) {
+                $handler($exception, $context);
+            }
+        });
+
+        return $this;
+    }
+
+    public function onException(string $exception, callable $handler): static
+    {
+        $this->errorHandler->register($exception, $handler);
+
+        return $this;
+    }
+
+    public function getContainer(): ContainerInterface
+    {
+        return $this->container;
+    }
+
+    public function getValidationRegistry(): ValidationRegistry
+    {
+        return $this->validation;
+    }
+
+    public function getScenes(): SceneRegistry
+    {
+        return $this->scenes;
+    }
+
+    public function getTransitions(): SceneTransitions
+    {
+        return $this->transitions;
+    }
+
+    // -- configuration -------------------------------------------------------------------------
+
+    /**
+     * @throws LogicException When called after the first handled update.
+     */
+    public function useStorage(StorageInterface $storage, ?int $sessionTtlSeconds = null): static
+    {
+        if ($this->application !== null) {
+            throw new LogicException('Storage must be configured before the bot handles its first update.');
+        }
+
+        $this->storage = $storage;
+        $this->sessionTtlSeconds = $sessionTtlSeconds ?? $this->sessionTtlSeconds;
+
+        return $this;
+    }
+
+    // -- handling ------------------------------------------------------------------------------
+
+    /**
+     * @param Update|array<string, mixed> $update
+     */
+    public function handle(Update|array $update): Result
+    {
+        $raw = self::stringKeys($update instanceof Update ? $update->toArray() : $update);
+        $telegramEventType = $this->detectTelegramUpdateType($raw);
+
+        if ($telegramEventType !== null && isset($this->telegramEventHandlers[$telegramEventType])) {
+            $event = $this->inboundEvent($raw);
+
+            if ($event === null) {
+                return Result::noMatch('unsupported_update');
+            }
+
+            return $this->application()->handle($event, $this->telegramEventRoute($telegramEventType, $raw));
+        }
+
+        $collected = $this->mediaGroupCollector->collect($raw);
+
+        if ($collected === null) {
             return Result::noMatch('telegram_media_group_pending');
         }
 
-        $event = $this->adapter->createInboundEvent($collectedUpdate);
+        $event = $this->inboundEvent($collected);
 
-        if ($this->shouldHandleMediaOutOfBand($event)) {
-            $handler = $this->mediaHandlerFor($event);
-            if ($handler !== null) {
-                return $this->handleOutOfBand($event, $handler, $collectedUpdate);
-            }
+        if ($event === null) {
+            return Result::noMatch('unsupported_update');
         }
 
-        return $this->application->handle($event);
+        return $this->application()->handle($event, $this->mediaRouteFor($event));
     }
 
     /**
+     * Handles the update Telegram posted to the webhook endpoint.
+     *
+     * @param string|null $secretToken The `X-Telegram-Bot-Api-Secret-Token` header; read from `$_SERVER` when omitted.
+     *
+     * @throws ValidationException When a webhook secret is configured and the token does not match.
      * @throws TelegramSDKException
      */
-    public function runWebhook(): Result
+    public function runWebhook(?string $secretToken = null): Result
     {
-        $this->validateWebhook();
+        $provided = $secretToken ?? ($_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? null);
+
+        if (!$this->verifyWebhookSecret(\is_string($provided) ? $provided : null)) {
+            throw new ValidationException('Invalid webhook secret token.');
+        }
 
         return $this->handle($this->api->getWebhookUpdate());
     }
 
     /**
-     * @param array<string> $allowedUpdates
+     * Constant-time comparison of the secret token header against the configured webhook secret.
+     */
+    public function verifyWebhookSecret(?string $providedToken): bool
+    {
+        if ($this->webhookSecret === null) {
+            return true;
+        }
+
+        return $providedToken !== null && hash_equals($this->webhookSecret, $providedToken);
+    }
+
+    /**
+     * @param list<string> $allowedUpdates
      *
      * @throws TelegramSDKException
      */
@@ -263,7 +397,7 @@ class Bot implements FlowRuntimeInterface
         $offset = 0;
         $running = true;
 
-        if (extension_loaded('pcntl')) {
+        if (\extension_loaded('pcntl')) {
             pcntl_signal(SIGINT, static function () use (&$running): void {
                 $running = false;
             });
@@ -273,26 +407,24 @@ class Bot implements FlowRuntimeInterface
         }
 
         while ($running) {
-            if (extension_loaded('pcntl')) {
+            if (\extension_loaded('pcntl')) {
                 pcntl_signal_dispatch();
             }
 
             try {
-                $updates = $this->api->getUpdates([
-                    'offset' => $offset,
-                    'limit' => 100,
-                    'timeout' => $timeout,
-                    'allowed_updates' => $allowedUpdates !== [] ? $allowedUpdates : null,
-                ]);
+                $params = ['offset' => $offset, 'limit' => 100, 'timeout' => $timeout];
 
-                foreach ($this->preparePollingUpdates($updates) as $update) {
-                    /** @var int $updateId */
+                if ($allowedUpdates !== []) {
+                    $params['allowed_updates'] = $allowedUpdates;
+                }
+
+                foreach ($this->preparePollingUpdates($this->api->getUpdates($params)) as $update) {
                     $updateId = $update['update_id'] ?? 0;
-                    $offset = $updateId + 1;
+                    $offset = (\is_int($updateId) ? $updateId : 0) + 1;
                     $this->handle($update);
                 }
             } catch (Throwable $e) {
-                $this->logger->error('Error in polling loop', ['message' => $e->getMessage()]);
+                $this->logger->error('Error in polling loop', ['exception' => $e::class, 'message' => $e->getMessage()]);
                 sleep(1);
             }
         }
@@ -303,110 +435,18 @@ class Bot implements FlowRuntimeInterface
      *
      * @throws TelegramSDKException
      */
-    public function setWebhook(string $url, array $params = []): bool|string
+    public function setWebhook(string $url, array $params = []): bool
     {
-        $defaultParams = ['url' => $url];
+        $defaults = ['url' => $url];
+
         if ($this->webhookSecret !== null) {
-            $defaultParams['secret_token'] = $this->webhookSecret;
+            $defaults['secret_token'] = $this->webhookSecret;
         }
 
-        return $this->api->setWebhook(array_merge($defaultParams, $params));
+        return $this->api->setWebhook(array_merge($defaults, $params));
     }
 
-    public function useStorage(StorageInterface $storage): self
-    {
-        $this->stateManager = new StateManager($this->sceneRegistry, $storage);
-        $this->application = $this->createApplication();
-
-        return $this;
-    }
-
-    /**
-     * @param class-string<BaseScene> $sceneClass
-     *
-     * @throws ValidationException
-     */
-    public function registerScene(string $sceneClass, ?string $label = null): self
-    {
-        $this->sceneRegistry->register($sceneClass, $label);
-
-        return $this;
-    }
-
-    public function getContainer(): ContainerInterface
-    {
-        return $this->container;
-    }
-
-    /**
-     * @param array<MiddlewareInterface|class-string<MiddlewareInterface>> $middlewares
-     */
-    public function middleware(array $middlewares): self
-    {
-        foreach ($middlewares as $middleware) {
-            $this->middlewares[] = $middleware;
-        }
-
-        $this->application->middleware($middlewares);
-
-        return $this;
-    }
-
-    /**
-     * @return array<MiddlewareInterface|class-string<MiddlewareInterface>>
-     */
-    public function getMiddlewares(): array
-    {
-        return $this->middlewares;
-    }
-
-    public function getValidationRegistry(): ValidationRegistry
-    {
-        return $this->validationRegistry;
-    }
-
-    /**
-     * @throws ContainerException
-     */
-    public function addProvider(ProviderInterface $provider): self
-    {
-        $provider->register($this->container);
-
-        return $this;
-    }
-
-    /**
-     * @param callable(Throwable, \ChatFlow\Core\Context): void $handler
-     */
-    public function setErrorHandler(callable $handler): self
-    {
-        $this->errorHandler->register(Throwable::class, static function (
-            Throwable $exception,
-            ?\ChatFlow\Core\Context $context
-        ) use ($handler): void {
-            if ($context !== null) {
-                $handler($exception, $context);
-            }
-        });
-
-        return $this;
-    }
-
-    /**
-     * @param class-string<Throwable>                            $exception
-     * @param callable(Throwable, ?\ChatFlow\Core\Context): void $handler
-     */
-    public function onException(string $exception, callable $handler): self
-    {
-        $this->errorHandler->register($exception, $handler);
-
-        return $this;
-    }
-
-    public function getConfig(): ConfigInterface
-    {
-        return $this->config;
-    }
+    // -- accessors -----------------------------------------------------------------------------
 
     public function getApi(): Api
     {
@@ -415,12 +455,12 @@ class Bot implements FlowRuntimeInterface
 
     public function getApplication(): Application
     {
-        return $this->application;
+        return $this->application();
     }
 
-    public function getStateManager(): ?StateManager
+    public function getConversations(): ConversationManager
     {
-        return $this->stateManager;
+        return $this->application()->getConversations();
     }
 
     public function getPublisher(): TelegramPublisher
@@ -428,85 +468,113 @@ class Bot implements FlowRuntimeInterface
         return $this->publisher;
     }
 
+    public function getAdapter(): TelegramPlatformAdapter
+    {
+        return $this->adapter;
+    }
+
+    public function getCallbackEncoder(): TelegramCallbackPayloadEncoder
+    {
+        return $this->callbackEncoder;
+    }
+
+    public function getErrorHandler(): ErrorHandlerInterface
+    {
+        return $this->errorHandler;
+    }
+
     /**
-     * @param array<string, mixed> $rawUpdate
+     * @return list<\ChatFlow\Middleware\MiddlewareInterface|class-string<\ChatFlow\Middleware\MiddlewareInterface>>
      */
-    private function handleOutOfBand(InboundEventInterface $event, callable $handler, array $rawUpdate): Result
+    public function getMiddlewares(): array
     {
-        $context = new Context($event, $this->adapter, $this->container, $this->stateManager);
+        return $this->middlewares;
+    }
 
-        try {
-            $this->bindRuntimeDependencies($context);
+    // -- internals -----------------------------------------------------------------------------
 
-            if ($this->stateManager !== null) {
-                $session = $this->stateManager->loadSession($event->getConversationId());
-                $context->setSession($session);
-            }
-
-            $telegramContext = $this->container->get(TelegramContext::class);
-            if (!$telegramContext instanceof TelegramContext) {
-                throw new ContainerException('TelegramContext is not registered.');
-            }
-
-            $this->container->call($handler, [
-                Context::class => $context,
-                TelegramContext::class => $telegramContext,
-                InboundEventInterface::class => $event,
-                'ctx' => $context,
-                'context' => $context,
-                'telegram' => $telegramContext,
-                'event' => $event,
-                'update' => $rawUpdate,
-                'rawUpdate' => $rawUpdate,
-            ]);
-
-            if ($this->stateManager !== null && $context->getSession() !== null) {
-                $this->stateManager->saveSession($context->session());
-            }
-
-            return $this->flushOutboundEffects($context, Result::success('telegram_handler_processed'));
-        } catch (Throwable $exception) {
-            $this->errorHandler->handle($exception, $context);
-
-            return $this->flushOutboundEffects(
-                $context,
-                Result::error($exception->getMessage(), ['exception' => $exception::class])
+    private function application(): Application
+    {
+        if ($this->application === null) {
+            $conversations = new ConversationManager(
+                $this->scenes,
+                $this->validation,
+                $this->storage ?? new MemoryStorage(),
+                $this->transitions,
+                $this->sessionTtlSeconds,
+                null,
+                $this->runtimeObserver,
             );
-        } finally {
-            $this->container->flush();
+
+            $application = new Application(
+                adapter: $this->adapter,
+                container: $this->container,
+                router: $this->router,
+                conversations: $conversations,
+                errorHandler: $this->errorHandler,
+                validationRegistry: $this->validation,
+                logger: $this->logger,
+                runtimeObserver: $this->runtimeObserver,
+            );
+            $application->middleware($this->middlewares);
+
+            $this->application = $application;
+        }
+
+        return $this->application;
+    }
+
+    /**
+     * @param array<string, mixed> $raw
+     */
+    private function inboundEvent(array $raw): ?InboundEventInterface
+    {
+        try {
+            return $this->adapter->createInboundEvent($raw);
+        } catch (UnsupportedInputException $exception) {
+            $this->logger->info('Telegram update skipped', ['reason' => $exception->getMessage()]);
+
+            return null;
         }
     }
 
-    private function bindRuntimeDependencies(Context $context): void
+    /**
+     * @param array<string, mixed> $raw
+     */
+    private function telegramEventRoute(string $type, array $raw): Route
     {
-        $this->container->set(Context::class, $context);
-        $this->container->set(InboundEventInterface::class, $context->getEvent());
+        $handler = $this->telegramEventHandlers[$type];
 
-        if ($this->stateManager !== null) {
-            $this->container->set(StateManager::class, $this->stateManager);
-        }
-
-        $this->adapter->bindRuntimeDependencies($this->container, $context);
+        return Route::custom('telegram:' . $type, static function (Context $ctx) use ($handler, $raw): void {
+            $ctx->getContainer()->call($handler, [
+                Context::class => $ctx,
+                InboundEventInterface::class => $ctx->getEvent(),
+                'ctx' => $ctx,
+                'context' => $ctx,
+                'event' => $ctx->getEvent(),
+                'update' => $raw,
+                'rawUpdate' => $raw,
+            ]);
+        }, global: true);
     }
 
-    private function flushOutboundEffects(Context $context, Result $result): Result
+    private function mediaRouteFor(InboundEventInterface $event): ?Route
     {
-        foreach ($context->getOutboundEffects() as $effect) {
-            $delivery = $this->adapter->deliver($context, $effect);
-            if ($delivery->isError()) {
-                $context->clearOutboundEffects();
+        if ($event->getAttachments() === []) {
+            return null;
+        }
 
-                return Result::error('delivery_failed', [
-                    'reason' => $delivery->getMessage(),
-                    'effect' => $effect->getType(),
-                    'data' => $delivery->getData(),
-                ]);
+        foreach ($event->getAttachments() as $attachment) {
+            if (isset($this->mediaHandlers[$attachment->getType()])) {
+                return Route::custom('media:' . $attachment->getType(), $this->mediaHandlers[$attachment->getType()]);
             }
         }
 
-        $context->clearOutboundEffects();
+        if (isset($this->mediaHandlers['any'])) {
+            return Route::custom('media:any', $this->mediaHandlers['any']);
+        }
 
-        return $result;
+        return null;
     }
 
     /**
@@ -523,33 +591,9 @@ class Bot implements FlowRuntimeInterface
         return null;
     }
 
-    private function shouldHandleMediaOutOfBand(InboundEventInterface $event): bool
-    {
-        if ($event->getAttachments() === []) {
-            return false;
-        }
-
-        if ($this->stateManager === null) {
-            return true;
-        }
-
-        $session = $this->stateManager->loadSession($event->getConversationId());
-
-        return !$session->hasScene();
-    }
-
-    private function mediaHandlerFor(InboundEventInterface $event): ?callable
-    {
-        foreach ($event->getAttachments() as $attachment) {
-            if (isset($this->mediaHandlers[$attachment->getType()])) {
-                return $this->mediaHandlers[$attachment->getType()];
-            }
-        }
-
-        return $this->mediaHandlers['any'] ?? null;
-    }
-
     /**
+     * Groups album parts that arrived in the same getUpdates() batch so that no waiting is needed.
+     *
      * @param iterable<mixed> $updates
      *
      * @return list<array<string, mixed>>
@@ -560,94 +604,95 @@ class Bot implements FlowRuntimeInterface
         $mediaGroups = [];
 
         foreach ($updates as $update) {
-            $raw = $update instanceof Update ? $update->toArray() : (is_array($update) ? $update : []);
+            $raw = $update instanceof Update ? $update->toArray() : (\is_array($update) ? $update : []);
+            $raw = self::stringKeys($raw);
             $message = $raw['message'] ?? $raw['edited_message'] ?? null;
-            if (!is_array($message)) {
+
+            if (!\is_array($message)) {
                 $prepared[] = $raw;
+
                 continue;
             }
 
             $mediaGroupId = $message['media_group_id'] ?? null;
-            if (!is_string($mediaGroupId) || $mediaGroupId === '') {
+
+            if (!\is_string($mediaGroupId) || $mediaGroupId === '') {
                 $prepared[] = $raw;
+
                 continue;
             }
 
             $chat = $message['chat'] ?? [];
-            $chatId = is_array($chat) && isset($chat['id']) && is_scalar($chat['id']) ? (string) $chat['id'] : '0';
+            $chatId = \is_array($chat) && isset($chat['id']) && \is_scalar($chat['id']) ? (string) $chat['id'] : '0';
             $mediaGroups[$chatId . ':' . $mediaGroupId][] = $raw;
         }
 
         foreach ($mediaGroups as $groupUpdates) {
-            usort($groupUpdates, static function (array $a, array $b): int {
-                $aMessage = $a['message'] ?? $a['edited_message'] ?? [];
-                $bMessage = $b['message'] ?? $b['edited_message'] ?? [];
-                $aMessageId = is_array($aMessage) && isset($aMessage['message_id']) && is_int($aMessage['message_id'])
-                    ? $aMessage['message_id']
-                    : 0;
-                $bMessageId = is_array($bMessage) && isset($bMessage['message_id']) && is_int($bMessage['message_id'])
-                    ? $bMessage['message_id']
-                    : 0;
-
-                return $aMessageId <=> $bMessageId;
-            });
+            usort($groupUpdates, static fn(array $a, array $b): int => self::messageIdOf($a) <=> self::messageIdOf($b));
 
             $leader = $groupUpdates[array_key_last($groupUpdates)];
             $messages = [];
+
             foreach ($groupUpdates as $groupUpdate) {
                 $message = $groupUpdate['message'] ?? $groupUpdate['edited_message'] ?? null;
-                if (is_array($message)) {
+
+                if (\is_array($message)) {
                     $messages[] = $message;
                 }
             }
 
-            $leader['message']['__chatflow_media_group_messages'] = $messages;
+            $key = isset($leader['message']) ? 'message' : 'edited_message';
+            $leaderMessage = \is_array($leader[$key] ?? null) ? $leader[$key] : [];
+            $leaderMessage[TelegramMediaGroupCollector::AGGREGATE_KEY] = $messages;
+            $leader[$key] = $leaderMessage;
             $prepared[] = $leader;
         }
 
-        usort($prepared, static fn (array $a, array $b): int => ((int) ($a['update_id'] ?? 0)) <=> ((int) ($b['update_id'] ?? 0)));
+        usort($prepared, static function (array $a, array $b): int {
+            $left = $a['update_id'] ?? 0;
+            $right = $b['update_id'] ?? 0;
+
+            return (\is_int($left) ? $left : 0) <=> (\is_int($right) ? $right : 0);
+        });
 
         return $prepared;
     }
 
     /**
-     * @throws ContainerException
+     * @param array<string, mixed> $update
      */
-    private function createApplication(): Application
+    private static function messageIdOf(array $update): int
     {
-        $application = new Application(
-            adapter: $this->adapter,
-            router: $this->router,
-            container: $this->container,
-            errorHandler: $this->errorHandler,
-            validationRegistry: $this->validationRegistry,
-            stateManager: $this->stateManager,
-            logger: $this->logger,
-            runtimeObserver: $this->runtimeObserver,
-        );
+        $message = $update['message'] ?? $update['edited_message'] ?? null;
 
-        if ($this->middlewares !== []) {
-            $application->middleware($this->middlewares);
+        if (!\is_array($message)) {
+            return 0;
         }
 
-        return $application;
+        $messageId = $message['message_id'] ?? 0;
+
+        return \is_int($messageId) ? $messageId : 0;
     }
 
-    private function createContainer(): Container
+    /**
+     * @param array<array-key, mixed> $data
+     *
+     * @return array<string, mixed>
+     */
+    private static function stringKeys(array $data): array
     {
-        $builder = new ContainerBuilder();
-        $builder->useAutowiring(true);
-        $builder->useAttributes(false);
+        $result = [];
 
-        return new Container($builder, autowire: true, useAttributes: false);
+        foreach ($data as $key => $value) {
+            $result[(string) $key] = $value;
+        }
+
+        return $result;
     }
 
     private function registerTelegramDefaultErrorPolicy(): void
     {
-        $this->errorHandler->register(TelegramResponseException::class, function (
-            TelegramResponseException $exception,
-            ?\ChatFlow\Core\Context $context
-        ): void {
+        $this->errorHandler->register(TelegramResponseException::class, function (Throwable $exception, ?Context $context): void {
             $message = strtolower($exception->getMessage());
 
             if (str_contains($message, 'message is not modified') || str_contains($message, 'query is too old')) {
@@ -665,18 +710,8 @@ class Bot implements FlowRuntimeInterface
         });
     }
 
-    /**
-     * @throws ValidationException
-     */
-    private function validateWebhook(): void
+    private static function deriveCallbackSecret(string $token): string
     {
-        if ($this->webhookSecret === null) {
-            return;
-        }
-
-        $providedToken = $_SERVER['HTTP_X_TELEGRAM_BOT_API_SECRET_TOKEN'] ?? null;
-        if (!is_string($providedToken) || $providedToken !== $this->webhookSecret) {
-            throw new ValidationException('Invalid webhook secret token.');
-        }
+        return hash('sha256', 'chatflow-telegram-callback:' . $token);
     }
 }

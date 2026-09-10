@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace ChatFlow\Telegram\Tests\Fixtures;
 
 use ChatFlow\Core\Context;
-use ChatFlow\FSM\BaseScene;
+use ChatFlow\Scene\BaseScene;
 use ChatFlow\View\View;
 
-class SurveyScene extends BaseScene
+final class SurveyScene extends BaseScene
 {
     public function handle(Context $ctx): void
     {
-        $this->ask('Как вас зовут?')
+        $ctx->ask('Как вас зовут?')
             ->validate('required', 'Имя не должно быть пустым')
             ->handle('handleName');
     }
@@ -21,7 +21,7 @@ class SurveyScene extends BaseScene
     {
         $ctx->session()->set('name', $ctx->getText());
 
-        $this->ask('Сколько вам лет?')
+        $ctx->ask('Сколько вам лет?')
             ->validate('numeric', 'Возраст должен быть числом')
             ->handle('handleAge');
     }
@@ -30,16 +30,13 @@ class SurveyScene extends BaseScene
     {
         $ctx->session()->set('age', (int) $ctx->getText());
 
-        $ctx->reply(
-            View::text('Данные сохранены')
-                ->addActionRow($this->sceneAction('ОК', 'onOk'))
-        );
+        $ctx->reply(View::text('Данные сохранены')->addActionRow($this->sceneAction('ОК', 'onOk')));
     }
 
     public function onOk(Context $ctx): void
     {
         $ctx->ack();
         $ctx->reply('Всего доброго!');
-        $this->leave();
+        $ctx->leave();
     }
 }

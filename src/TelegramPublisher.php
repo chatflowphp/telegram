@@ -11,9 +11,7 @@ use Telegram\Bot\FileUpload\InputFile;
 
 final class TelegramPublisher
 {
-    public function __construct(private readonly Api $api)
-    {
-    }
+    public function __construct(private readonly Api $api) {}
 
     public function sendMessage(
         string|int $chatId,
@@ -63,7 +61,7 @@ final class TelegramPublisher
             'animation' => 'animation',
         ];
         if (!isset($endpoints[$type], $fields[$type])) {
-            throw new InvalidArgumentException(sprintf('Unsupported Telegram media type "%s".', $type));
+            throw new InvalidArgumentException(\sprintf('Unsupported Telegram media type "%s".', $type));
         }
 
         $endpoint = $endpoints[$type];
@@ -94,20 +92,20 @@ final class TelegramPublisher
         array $media,
         ?TelegramMessageOptions $options = null,
     ): TelegramDeliveryGroupResult {
-        if (count($media) < 2 || count($media) > 10) {
+        if (\count($media) < 2 || \count($media) > 10) {
             throw new InvalidArgumentException('Telegram media group must contain 2-10 media items.');
         }
 
         $params = array_merge([
             'chat_id' => $chatId,
             'media' => json_encode(array_map(
-                static fn (TelegramMedia $item): array => $item->toInputMedia(),
-                $media
+                static fn(TelegramMedia $item): array => $item->toInputMedia(),
+                $media,
             ), JSON_THROW_ON_ERROR),
         ], $options?->toTelegramParams() ?? []);
 
         $response = $this->api->sendMediaGroup($params);
-        $raw = $this->normalizeResponse($response);
+        $raw = self::normalizeResponse($response);
 
         return new TelegramDeliveryGroupResult(
             chatId: $chatId,
@@ -154,7 +152,7 @@ final class TelegramPublisher
             'message_id' => $messageId,
         ]);
 
-        return new TelegramDeliveryResult($chatId, $messageId, 'deleteMessage', $this->normalizeResponse($response));
+        return new TelegramDeliveryResult($chatId, $messageId, 'deleteMessage', self::normalizeResponse($response));
     }
 
     public static function normalizeMediaSource(string $source): string|InputFile
@@ -168,51 +166,47 @@ final class TelegramPublisher
 
     private function singleResult(string|int $chatId, string $endpoint, mixed $response): TelegramDeliveryResult
     {
-        $raw = $this->normalizeResponse($response);
+        $raw = self::normalizeResponse($response);
         $messageId = $raw['message_id'] ?? null;
 
         return new TelegramDeliveryResult(
             chatId: $chatId,
-            messageId: is_int($messageId) ? $messageId : null,
+            messageId: \is_int($messageId) ? $messageId : null,
             endpoint: $endpoint,
             rawResponse: $raw,
         );
     }
 
     /**
+     * Turns an SDK response (object, list, map, bool) into a string-keyed array.
+     *
      * @return array<string, mixed>
      */
-    private function normalizeResponse(mixed $response): array
+    public static function normalizeResponse(mixed $response): array
     {
-        if (is_array($response)) {
-            if (array_is_list($response)) {
-                return ['messages' => $response];
-            }
-
-            /* @var array<string, mixed> $response */
-            return $response;
+        if (\is_object($response) && method_exists($response, 'toArray')) {
+            $response = $response->toArray();
         }
 
-        if (is_object($response) && method_exists($response, 'toArray')) {
-            $array = $response->toArray();
-
-            if (!is_array($array)) {
-                return ['value' => $array];
-            }
-
-            if (array_is_list($array)) {
-                return ['messages' => $array];
-            }
-
-            /* @var array<string, mixed> $array */
-            return $array;
-        }
-
-        if (is_bool($response)) {
+        if (\is_bool($response)) {
             return ['ok' => $response];
         }
 
-        return ['value' => $response];
+        if (!\is_array($response)) {
+            return ['value' => $response];
+        }
+
+        if (array_is_list($response)) {
+            return ['messages' => $response];
+        }
+
+        $normalized = [];
+
+        foreach ($response as $key => $value) {
+            $normalized[(string) $key] = $value;
+        }
+
+        return $normalized;
     }
 
     /**
@@ -223,13 +217,13 @@ final class TelegramPublisher
     private function extractMessageIds(array $raw): array
     {
         $items = $raw['messages'] ?? $raw['result'] ?? [];
-        if (!is_array($items)) {
+        if (!\is_array($items)) {
             return [];
         }
 
         $ids = [];
         foreach ($items as $item) {
-            if (is_array($item) && isset($item['message_id']) && is_int($item['message_id'])) {
+            if (\is_array($item) && isset($item['message_id']) && \is_int($item['message_id'])) {
                 $ids[] = $item['message_id'];
             }
         }

@@ -13,7 +13,7 @@ final class TelegramView
         $normalized = $view instanceof View ? $view : View::text($view);
         $meta = $normalized->getMeta();
         $telegramMeta = $meta['telegram'] ?? [];
-        if (!is_array($telegramMeta)) {
+        if (!\is_array($telegramMeta)) {
             $telegramMeta = [];
         }
 
@@ -29,7 +29,7 @@ final class TelegramView
     ): View {
         return self::options(
             $view,
-            (new TelegramMessageOptions(parseMode: $parseMode, replyToMessageId: $replyToMessageId))->withForceReply()
+            (new TelegramMessageOptions(parseMode: $parseMode, replyToMessageId: $replyToMessageId))->withForceReply(),
         );
     }
 }

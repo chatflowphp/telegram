@@ -14,6 +14,7 @@ use ChatFlow\Event\InboundAttachment;
 use ChatFlow\Event\InboundEvent;
 use ChatFlow\Event\MessageRef;
 use ChatFlow\Event\UserRef;
+use ChatFlow\Exception\UnsupportedInputException;
 use ChatFlow\Exception\ValidationException;
 use ChatFlow\Outbound\AckEffect;
 use ChatFlow\Outbound\DeliveryResult;
@@ -21,8 +22,8 @@ use ChatFlow\Outbound\OutboundEffectInterface;
 use ChatFlow\Outbound\RenderEffect;
 use ChatFlow\Outbound\ReplyEffect;
 use ChatFlow\Platform\PlatformCapabilities;
-use ChatFlow\Telegram\Callback\InMemoryTelegramCallbackStore;
 use ChatFlow\Telegram\Callback\TelegramCallbackPayloadEncoder;
+use ChatFlow\Telegram\MediaGroup\TelegramMediaGroupCollector;
 use ChatFlow\Telegram\UI\TelegramScreenManager;
 use ChatFlow\View\Action;
 use ChatFlow\View\Choice;
@@ -34,88 +35,112 @@ use Telegram\Bot\Api;
 use Telegram\Bot\Objects\Update;
 use Throwable;
 
+/**
+ * Converts Telegram updates into core inbound events and delivers core effects through the
+ * Bot API.
+ */
 final class TelegramPlatformAdapter implements PlatformAdapterInterface, RuntimeDependencyBinderInterface
 {
+    private const MEDIA_TYPES = ['document', 'video', 'audio', 'voice', 'animation', 'sticker', 'video_note'];
+    private const EDITABLE_MEDIA_TYPES = ['photo', 'document', 'video', 'audio', 'animation'];
+
+    private readonly LoggerInterface $logger;
+
     public function __construct(
         private readonly Api $api,
         private readonly FileDownloader $fileDownloader,
-        private readonly ?TelegramCallbackPayloadEncoder $callbackPayloadEncoder = null,
+        private readonly TelegramCallbackPayloadEncoder $callbackEncoder,
         private readonly ?TelegramScreenManager $screenManager = null,
         ?LoggerInterface $logger = null,
     ) {
         $this->logger = $logger ?? new NullLogger();
     }
 
-    private readonly LoggerInterface $logger;
-
     public function bindRuntimeDependencies(ContainerInterface $container, Context $context): void
     {
-        $container->set(TelegramContext::class, new TelegramContext($context));
+        $container->scoped(TelegramContext::class, new TelegramContext($context));
+
         if ($this->screenManager !== null) {
-            $container->set(TelegramScreenManager::class, $this->screenManager->forContext($context));
+            $container->scoped(TelegramScreenManager::class, $this->screenManager->forContext($context));
         }
     }
 
+    /**
+     * @throws UnsupportedInputException When the update carries no chat (inline queries, polls,
+     *                                   shipping queries) or its callback data was not produced by this bot.
+     */
     public function createInboundEvent(mixed $input): InboundEventInterface
     {
-        $update = $input instanceof Update ? $input : new Update(is_array($input) ? $input : []);
-        $raw = $update->toArray();
+        $update = $input instanceof Update ? $input : new Update(\is_array($input) ? $input : []);
+        $raw = self::stringKeys($update->toArray());
+        $updateType = self::detectUpdateType($raw);
 
-        $message = $raw['message'] ?? $raw['edited_message'] ?? null;
-        $callbackQuery = $raw['callback_query'] ?? null;
-        $telegramEvent = $raw['my_chat_member'] ?? $raw['chat_member'] ?? null;
-        $callbackMessage = is_array($callbackQuery) ? ($callbackQuery['message'] ?? null) : null;
-        $sourceMessage = is_array($message)
-            ? $message
-            : (is_array($callbackMessage) ? $callbackMessage : (is_array($telegramEvent) ? $telegramEvent : []));
+        $message = self::arrayOrNull($raw['message'] ?? $raw['edited_message'] ?? null);
+        $callbackQuery = self::arrayOrNull($raw['callback_query'] ?? null);
+        $membership = self::arrayOrNull($raw['my_chat_member'] ?? $raw['chat_member'] ?? null);
+        $sourceMessage = $message ?? self::arrayOrNull($callbackQuery['message'] ?? null) ?? $membership ?? [];
 
-        $chat = is_array($sourceMessage['chat'] ?? null) ? $sourceMessage['chat'] : [];
-        $from = is_array($sourceMessage['from'] ?? null) ? $sourceMessage['from'] : [];
-        if ($from === [] && is_array($sourceMessage['new_chat_member']['user'] ?? null)) {
-            $from = $sourceMessage['new_chat_member']['user'];
+        $chat = self::arrayOrNull($sourceMessage['chat'] ?? null) ?? [];
+        $chatId = $chat['id'] ?? null;
+
+        if (!\is_int($chatId) && !\is_string($chatId)) {
+            throw new UnsupportedInputException(\sprintf('Telegram update of type "%s" carries no chat and cannot start a conversation.', $updateType));
         }
-        $from = $from !== []
-            ? $from
-            : (is_array($callbackQuery['from'] ?? null) ? $callbackQuery['from'] : []);
 
-        $conversationId = isset($chat['id']) ? (string) $chat['id'] : '0';
+        $newChatMember = self::arrayOrNull($sourceMessage['new_chat_member'] ?? null);
+        $from = self::arrayOrNull($sourceMessage['from'] ?? null)
+            ?? self::arrayOrNull($newChatMember['user'] ?? null)
+            ?? self::arrayOrNull($callbackQuery['from'] ?? null)
+            ?? [];
         $userId = $from['id'] ?? null;
-        $text = (string) ($sourceMessage['text'] ?? $sourceMessage['caption'] ?? '');
 
         $actionId = null;
         $actionPayload = null;
-        if (is_array($callbackQuery) && isset($callbackQuery['data']) && is_string($callbackQuery['data'])) {
-            [$actionId, $actionPayload] = $this->decodeCallbackData($callbackQuery['data']);
+        $callbackStatus = null;
+
+        if ($callbackQuery !== null && isset($callbackQuery['data']) && \is_string($callbackQuery['data'])) {
+            $decoded = $this->callbackEncoder->decode($callbackQuery['data']);
+
+            if ($decoded->isRejected()) {
+                throw new UnsupportedInputException(\sprintf('Telegram callback data rejected: %s.', (string) $decoded->reason));
+            }
+
+            $actionId = $decoded->actionId;
+            $actionPayload = $decoded->payload;
+            $callbackStatus = $decoded->status;
         }
 
-        $attachments = $this->extractAttachments($sourceMessage);
-        $messageRefData = [
-            'chat_id' => $chat['id'] ?? null,
-            'message_id' => $sourceMessage['message_id'] ?? null,
-            'callback_query_id' => $callbackQuery['id'] ?? null,
-            'media_group_id' => $sourceMessage['media_group_id'] ?? null,
-            'message_type' => $this->detectMessageType($sourceMessage),
-            'update_type' => $this->detectUpdateType($raw),
-            'is_action' => $actionId !== null,
-        ];
-        $messageId = isset($sourceMessage['message_id']) && is_scalar($sourceMessage['message_id'])
-            ? (string) $sourceMessage['message_id']
-            : null;
-        $replyToken = isset($callbackQuery['id']) && is_string($callbackQuery['id']) ? $callbackQuery['id'] : null;
+        $text = $sourceMessage['text'] ?? $sourceMessage['caption'] ?? '';
+        $messageId = $sourceMessage['message_id'] ?? null;
+        $callbackQueryId = $callbackQuery['id'] ?? null;
 
         return new InboundEvent(
-            conversation: new ConversationRef($conversationId, 'telegram', ['chat' => $chat]),
-            user: is_scalar($userId) ? new UserRef($userId, 'telegram', ['user' => $from]) : null,
-            text: $text,
+            conversation: new ConversationRef((string) $chatId, 'telegram', ['chat' => self::filterSerializable($chat)]),
+            user: \is_int($userId) || \is_string($userId) ? new UserRef($userId, 'telegram', ['user' => self::filterSerializable($from)]) : null,
+            text: \is_string($text) ? $text : '',
             actionId: $actionId,
             actionPayload: $actionPayload,
-            attachments: $attachments,
-            messageRef: new MessageRef($messageId, null, $replyToken, $messageRefData),
+            attachments: $this->extractAttachments($sourceMessage),
+            messageRef: new MessageRef(
+                \is_scalar($messageId) ? (string) $messageId : null,
+                null,
+                \is_string($callbackQueryId) ? $callbackQueryId : null,
+                self::filterSerializable([
+                    'chat_id' => $chatId,
+                    'message_id' => $messageId,
+                    'callback_query_id' => $callbackQueryId,
+                    'callback_status' => $callbackStatus,
+                    'media_group_id' => $sourceMessage['media_group_id'] ?? null,
+                    'message_type' => self::detectMessageType($sourceMessage),
+                    'update_type' => $updateType,
+                    'is_action' => $actionId !== null,
+                ]),
+            ),
             metadata: [
                 'update_id' => $raw['update_id'] ?? null,
-                'telegram' => $raw,
-                'user' => $from,
-                'chat' => $chat,
+                'telegram' => self::filterSerializable($raw),
+                'user' => self::filterSerializable($from),
+                'chat' => self::filterSerializable($chat),
             ],
         );
     }
@@ -124,27 +149,20 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
     {
         try {
             if ($effect instanceof ReplyEffect) {
-                $response = $this->sendView($context, $effect->getView(), false);
-
                 return DeliveryResult::success('telegram_reply_delivered', [
-                    'telegram' => $this->normalizeResponse($response),
+                    'telegram' => TelegramPublisher::normalizeResponse($this->sendView($context, $effect->getView(), false)),
                 ]);
             }
 
             if ($effect instanceof RenderEffect) {
-                $response = $this->sendView($context, $effect->getView(), true);
-
                 return DeliveryResult::success('telegram_render_delivered', [
-                    'telegram' => $this->normalizeResponse($response),
+                    'telegram' => TelegramPublisher::normalizeResponse($this->sendView($context, $effect->getView(), true)),
                 ]);
             }
 
             if ($effect instanceof AckEffect) {
-                $message = $this->deliverAck($context, $effect);
-
-                return DeliveryResult::success($message);
+                return DeliveryResult::success($this->deliverAck($context, $effect));
             }
-
         } catch (Throwable $exception) {
             return DeliveryResult::error('telegram_delivery_failed', [
                 'reason' => $exception->getMessage(),
@@ -160,7 +178,7 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
         $attachment = $context->getFirstAttachment();
         $fileId = $attachment?->getId() ?? $attachment?->get('file_id');
 
-        if (!is_string($fileId) || $fileId === '') {
+        if (!\is_string($fileId) || $fileId === '') {
             return null;
         }
 
@@ -180,19 +198,7 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
         );
     }
 
-    /**
-     * @return array{0: ?string, 1: mixed}
-     */
-    private function decodeCallbackData(string $callbackData): array
-    {
-        return $this->callbackEncoder()->decode($callbackData);
-    }
-
-    private function callbackEncoder(): TelegramCallbackPayloadEncoder
-    {
-        return $this->callbackPayloadEncoder
-            ?? new TelegramCallbackPayloadEncoder(new InMemoryTelegramCallbackStore());
-    }
+    // -- inbound -------------------------------------------------------------------------------
 
     /**
      * @param array<string, mixed> $message
@@ -201,12 +207,14 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
      */
     private function extractAttachments(array $message): array
     {
-        $mediaGroupMessages = $message['__chatflow_media_group_messages'] ?? null;
-        if (is_array($mediaGroupMessages) && $mediaGroupMessages !== []) {
+        $aggregated = $message[TelegramMediaGroupCollector::AGGREGATE_KEY] ?? null;
+
+        if (\is_array($aggregated) && $aggregated !== []) {
             $attachments = [];
-            foreach ($mediaGroupMessages as $part) {
-                if (is_array($part)) {
-                    $attachments = [...$attachments, ...$this->extractAttachments($part)];
+
+            foreach ($aggregated as $part) {
+                if (\is_array($part)) {
+                    $attachments = [...$attachments, ...$this->extractAttachments(self::stringKeys($part))];
                 }
             }
 
@@ -214,16 +222,23 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
         }
 
         $attachments = [];
-        $commonMeta = $this->commonAttachmentMeta($message);
+        $commonMeta = self::filterSerializable([
+            'caption' => $message['caption'] ?? null,
+            'media_group_id' => $message['media_group_id'] ?? null,
+            'message_id' => $message['message_id'] ?? null,
+        ]);
+
         $photo = $message['photo'] ?? null;
-        if (is_array($photo) && $photo !== []) {
+
+        if (\is_array($photo) && $photo !== []) {
             $bestPhoto = end($photo);
-            if (is_array($bestPhoto) && isset($bestPhoto['file_id']) && is_string($bestPhoto['file_id'])) {
+
+            if (\is_array($bestPhoto) && isset($bestPhoto['file_id']) && \is_string($bestPhoto['file_id'])) {
                 $attachments[] = new InboundAttachment(
                     type: 'photo',
                     id: $bestPhoto['file_id'],
-                    size: isset($bestPhoto['file_size']) && is_int($bestPhoto['file_size']) ? $bestPhoto['file_size'] : null,
-                    meta: array_merge($commonMeta, $this->filterSerializable([
+                    size: \is_int($bestPhoto['file_size'] ?? null) ? $bestPhoto['file_size'] : null,
+                    meta: array_merge($commonMeta, self::filterSerializable([
                         'file_id' => $bestPhoto['file_id'],
                         'file_unique_id' => $bestPhoto['file_unique_id'] ?? null,
                         'width' => $bestPhoto['width'] ?? null,
@@ -234,10 +249,20 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
             }
         }
 
-        foreach (['document', 'video', 'audio', 'voice', 'animation', 'sticker', 'video_note'] as $type) {
+        foreach (self::MEDIA_TYPES as $type) {
             $attachment = $message[$type] ?? null;
-            if (is_array($attachment) && isset($attachment['file_id']) && is_string($attachment['file_id'])) {
-                $meta = array_merge($commonMeta, $this->filterSerializable([
+
+            if (!\is_array($attachment) || !isset($attachment['file_id']) || !\is_string($attachment['file_id'])) {
+                continue;
+            }
+
+            $attachments[] = new InboundAttachment(
+                type: $type,
+                id: $attachment['file_id'],
+                name: \is_string($attachment['file_name'] ?? null) ? $attachment['file_name'] : null,
+                mimeType: \is_string($attachment['mime_type'] ?? null) ? $attachment['mime_type'] : null,
+                size: \is_int($attachment['file_size'] ?? null) ? $attachment['file_size'] : null,
+                meta: array_merge($commonMeta, self::filterSerializable([
                     'file_id' => $attachment['file_id'],
                     'file_unique_id' => $attachment['file_unique_id'] ?? null,
                     'width' => $attachment['width'] ?? null,
@@ -245,17 +270,8 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
                     'duration' => $attachment['duration'] ?? null,
                     'supports_streaming' => $attachment['supports_streaming'] ?? null,
                     'thumb' => $attachment['thumb'] ?? ($attachment['thumbnail'] ?? null),
-                ]));
-
-                $attachments[] = new InboundAttachment(
-                    type: $type,
-                    id: $attachment['file_id'],
-                    name: isset($attachment['file_name']) && is_string($attachment['file_name']) ? $attachment['file_name'] : null,
-                    mimeType: isset($attachment['mime_type']) && is_string($attachment['mime_type']) ? $attachment['mime_type'] : null,
-                    size: isset($attachment['file_size']) && is_int($attachment['file_size']) ? $attachment['file_size'] : null,
-                    meta: $meta,
-                );
-            }
+                ])),
+            );
         }
 
         return $attachments;
@@ -263,76 +279,10 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
 
     /**
      * @param array<string, mixed> $message
-     *
-     * @return array<string, mixed>
      */
-    private function commonAttachmentMeta(array $message): array
+    private static function detectMessageType(array $message): string
     {
-        return $this->filterSerializable([
-            'caption' => $message['caption'] ?? null,
-            'media_group_id' => $message['media_group_id'] ?? null,
-            'message_id' => $message['message_id'] ?? null,
-        ]);
-    }
-
-    /**
-     * @param array<string, mixed> $data
-     *
-     * @return array<string, mixed>
-     */
-    private function filterSerializable(array $data): array
-    {
-        $filtered = [];
-        foreach ($data as $key => $value) {
-            if ($value === null) {
-                continue;
-            }
-
-            if (is_array($value)) {
-                $filtered[$key] = $this->filterSerializableListOrMap($value);
-                continue;
-            }
-
-            if (is_scalar($value)) {
-                $filtered[$key] = $value;
-            }
-        }
-
-        return $filtered;
-    }
-
-    /**
-     * @param array<mixed, mixed> $data
-     *
-     * @return array<mixed, mixed>
-     */
-    private function filterSerializableListOrMap(array $data): array
-    {
-        $filtered = [];
-        foreach ($data as $key => $value) {
-            if ($value === null) {
-                continue;
-            }
-
-            if (is_array($value)) {
-                $filtered[$key] = $this->filterSerializableListOrMap($value);
-                continue;
-            }
-
-            if (is_scalar($value)) {
-                $filtered[$key] = $value;
-            }
-        }
-
-        return $filtered;
-    }
-
-    /**
-     * @param array<string, mixed> $message
-     */
-    private function detectMessageType(array $message): string
-    {
-        foreach (['photo', 'document', 'video', 'audio', 'voice', 'animation', 'sticker', 'video_note'] as $type) {
+        foreach (['photo', ...self::MEDIA_TYPES] as $type) {
             if (isset($message[$type])) {
                 return $type;
             }
@@ -344,83 +294,67 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
     /**
      * @param array<string, mixed> $raw
      */
-    private function detectUpdateType(array $raw): string
+    private static function detectUpdateType(array $raw): string
     {
-        foreach (['message', 'edited_message', 'callback_query', 'my_chat_member', 'chat_member'] as $type) {
-            if (isset($raw[$type])) {
-                return $type;
+        foreach (array_keys($raw) as $key) {
+            if ($key !== 'update_id') {
+                return $key;
             }
         }
 
         return 'unknown';
     }
 
+    // -- outbound ------------------------------------------------------------------------------
+
     private function sendView(Context $context, View $view, bool $preferRender): mixed
     {
-        $messageRef = $context->getMessageRef();
-        $messageRefData = $messageRef?->getPlatformData() ?? [];
+        $messageRefData = $context->getMessageRef()?->getPlatformData() ?? [];
         $replyMarkup = $this->buildReplyMarkup($view);
-        $optionsParams = $this->extractTelegramOptions($view)->toTelegramParams();
+        $options = $this->extractTelegramOptions($view);
+        $optionsParams = $options->toTelegramParams();
         $hasMedia = $view->getMedia() !== [];
         $usesChoices = $view->getChoices() !== [];
         $currentMessageType = $messageRefData['message_type'] ?? 'text';
+        $canEdit = $preferRender && $context->isAction() && !$usesChoices && isset($messageRefData['chat_id'], $messageRefData['message_id']);
+        $target = ['chat_id' => $messageRefData['chat_id'] ?? null, 'message_id' => $messageRefData['message_id'] ?? null];
 
-        if (
-            $preferRender
-            && $context->isAction()
-            && !$hasMedia
-            && !$usesChoices
-            && ($currentMessageType === 'text')
-            && isset($messageRefData['chat_id'], $messageRefData['message_id'])
-        ) {
+        if ($canEdit && !$hasMedia && $currentMessageType === 'text') {
             try {
-                return $this->api->editMessageText(array_merge([
-                    'chat_id' => $messageRefData['chat_id'],
-                    'message_id' => $messageRefData['message_id'],
-                    'text' => $view->getText(),
-                ], $replyMarkup, $optionsParams));
+                return $this->api->editMessageText(array_merge($target, ['text' => $view->getText()], $replyMarkup, $optionsParams));
             } catch (Throwable $exception) {
+                if (self::isNotModified($exception)) {
+                    return ['ok' => true, 'not_modified' => true];
+                }
+
                 $this->logRenderFallback('editMessageText', $context, $exception);
             }
         }
 
-        if (
-            $preferRender
-            && $context->isAction()
-            && $hasMedia
-            && !$usesChoices
-            && $this->isEditableMediaMessageType((string) $currentMessageType)
-            && isset($messageRefData['chat_id'], $messageRefData['message_id'])
-        ) {
+        if ($canEdit && $hasMedia && \is_string($currentMessageType) && \in_array($currentMessageType, self::EDITABLE_MEDIA_TYPES, true)) {
             try {
-                return $this->api->editMessageMedia(array_merge([
-                    'chat_id' => $messageRefData['chat_id'],
-                    'message_id' => $messageRefData['message_id'],
-                    'media' => json_encode(
-                        $this->buildInputMedia($view->getMedia()[0], $view->getText(), $this->extractTelegramOptions($view)),
-                        JSON_THROW_ON_ERROR
-                    ),
+                return $this->api->editMessageMedia(array_merge($target, [
+                    'media' => json_encode($this->buildInputMedia($view->getMedia()[0], $view->getText(), $options), JSON_THROW_ON_ERROR),
                 ], $replyMarkup, $optionsParams));
             } catch (Throwable $exception) {
+                if (self::isNotModified($exception)) {
+                    return ['ok' => true, 'not_modified' => true];
+                }
+
                 $this->logRenderFallback('editMessageMedia', $context, $exception);
             }
         }
 
         if ($preferRender && $context->isAction() && isset($messageRefData['chat_id'], $messageRefData['message_id'])) {
             try {
-                $this->api->deleteMessage([
-                    'chat_id' => $messageRefData['chat_id'],
-                    'message_id' => $messageRefData['message_id'],
-                ]);
+                $this->api->deleteMessage($target);
             } catch (Throwable $exception) {
                 $this->logRenderFallback('deleteMessage', $context, $exception);
             }
         }
 
         if ($hasMedia) {
-            $media = $view->getMedia()[0];
-
-            return $this->sendMedia($context, $media, $view->getText(), array_merge($replyMarkup, $optionsParams));
+            return $this->sendMedia($context, $view->getMedia()[0], $view->getText(), array_merge($replyMarkup, $optionsParams));
         }
 
         return $this->api->sendMessage(array_merge([
@@ -433,9 +367,7 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
     {
         $telegramMeta = $view->getMeta()['telegram'] ?? [];
 
-        return is_array($telegramMeta)
-            ? TelegramMessageOptions::fromMeta($telegramMeta)
-            : new TelegramMessageOptions();
+        return \is_array($telegramMeta) ? TelegramMessageOptions::fromMeta(self::stringKeys($telegramMeta)) : new TelegramMessageOptions();
     }
 
     /**
@@ -445,8 +377,8 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
     {
         if ($view->getActions() !== []) {
             $rows = array_map(
-                fn (array $row): array => array_map(fn (Action $action): array => $this->mapAction($action), $row),
-                $view->getActions()
+                fn(array $row): array => array_map(fn(Action $action): array => $this->mapAction($action), $row),
+                $view->getActions(),
             );
 
             return ['reply_markup' => json_encode(['inline_keyboard' => $rows], JSON_THROW_ON_ERROR)];
@@ -454,10 +386,10 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
 
         if ($view->getChoices() !== []) {
             $rows = array_map(
-                fn (array $row): array => array_map(fn (Choice $choice): array => [
+                static fn(array $row): array => array_map(static fn(Choice $choice): array => [
                     'text' => $choice->getValue() !== '' ? $choice->getValue() : $choice->getLabel(),
                 ], $row),
-                $view->getChoices()
+                $view->getChoices(),
             );
 
             return ['reply_markup' => json_encode([
@@ -476,21 +408,10 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
     private function mapAction(Action $action): array
     {
         if ($action->getUrl() !== null) {
-            return [
-                'text' => $action->getLabel(),
-                'url' => $action->getUrl(),
-            ];
+            return ['text' => $action->getLabel(), 'url' => $action->getUrl()];
         }
 
-        return [
-            'text' => $action->getLabel(),
-            'callback_data' => $this->encodeAction($action),
-        ];
-    }
-
-    private function encodeAction(Action $action): string
-    {
-        return $this->callbackEncoder()->encode($action);
+        return ['text' => $action->getLabel(), 'callback_data' => $this->callbackEncoder->encode($action)];
     }
 
     private function deliverAck(Context $context, AckEffect $effect): string
@@ -526,63 +447,57 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
     }
 
     /**
-     * @param array<string, mixed> $replyMarkup
+     * @param array<string, mixed> $extra
      */
-    private function sendMedia(Context $context, MediaAttachment $media, string $text, array $replyMarkup): mixed
+    private function sendMedia(Context $context, MediaAttachment $media, string $text, array $extra): mixed
     {
-        $params = array_merge([
-            'chat_id' => $context->getConversationId(),
-            'caption' => $text,
-        ], $replyMarkup);
+        $params = array_merge(['chat_id' => $context->getConversationId(), 'caption' => $text], $extra);
+        $source = TelegramPublisher::normalizeMediaSource($media->getSource());
 
-        return match ($this->normalizeMediaType($media->getType())) {
-            'photo' => $this->api->sendPhoto(array_merge($params, ['photo' => TelegramPublisher::normalizeMediaSource($media->getSource())])),
-            'document' => $this->api->sendDocument(array_merge($params, ['document' => TelegramPublisher::normalizeMediaSource($media->getSource())])),
-            'video' => $this->api->sendVideo(array_merge($params, ['video' => TelegramPublisher::normalizeMediaSource($media->getSource())])),
-            'audio' => $this->api->sendAudio(array_merge($params, ['audio' => TelegramPublisher::normalizeMediaSource($media->getSource())])),
-            'animation' => $this->api->sendAnimation(array_merge($params, ['animation' => TelegramPublisher::normalizeMediaSource($media->getSource())])),
-            default => throw new ValidationException(sprintf('Unsupported media type "%s".', $media->getType())),
+        return match (self::normalizeMediaType($media->getType())) {
+            'photo' => $this->api->sendPhoto(array_merge($params, ['photo' => $source])),
+            'document' => $this->api->sendDocument(array_merge($params, ['document' => $source])),
+            'video' => $this->api->sendVideo(array_merge($params, ['video' => $source])),
+            'audio' => $this->api->sendAudio(array_merge($params, ['audio' => $source])),
+            'animation' => $this->api->sendAnimation(array_merge($params, ['animation' => $source])),
+            default => throw new ValidationException(\sprintf('Unsupported media type "%s".', $media->getType())),
         };
-    }
-
-    private function isEditableMediaMessageType(string $messageType): bool
-    {
-        return in_array($messageType, ['photo', 'document', 'video', 'audio', 'animation'], true);
     }
 
     /**
      * @return array<string, mixed>
      */
-    private function buildInputMedia(MediaAttachment $media, string $caption, ?TelegramMessageOptions $options = null): array
+    private function buildInputMedia(MediaAttachment $media, string $caption, TelegramMessageOptions $options): array
     {
-        $type = $this->normalizeMediaType($media->getType());
-        if (!in_array($type, ['photo', 'document', 'video', 'audio', 'animation'], true)) {
-            throw new ValidationException(sprintf('Unsupported media type "%s".', $media->getType()));
+        $type = self::normalizeMediaType($media->getType());
+
+        if (!\in_array($type, self::EDITABLE_MEDIA_TYPES, true)) {
+            throw new ValidationException(\sprintf('Unsupported media type "%s".', $media->getType()));
         }
 
-        $payload = [
-            'type' => $type,
-            'media' => $media->getSource(),
-        ];
+        $payload = ['type' => $type, 'media' => $media->getSource()];
 
         if ($caption !== '') {
             $payload['caption'] = $caption;
         }
 
-        $optionsParams = $options?->toTelegramParams() ?? [];
-        if (isset($optionsParams['parse_mode']) && is_string($optionsParams['parse_mode'])) {
-            $payload['parse_mode'] = $optionsParams['parse_mode'];
+        $parseMode = $options->toTelegramParams()['parse_mode'] ?? null;
+
+        if (\is_string($parseMode)) {
+            $payload['parse_mode'] = $parseMode;
         }
 
         return $payload;
     }
 
-    private function normalizeMediaType(string $type): string
+    private static function normalizeMediaType(string $type): string
     {
-        return match ($type) {
-            'image' => 'photo',
-            default => $type,
-        };
+        return $type === 'image' ? 'photo' : $type;
+    }
+
+    private static function isNotModified(Throwable $exception): bool
+    {
+        return str_contains(strtolower($exception->getMessage()), 'message is not modified');
     }
 
     private function logRenderFallback(string $endpoint, Context $context, Throwable $exception): void
@@ -596,38 +511,87 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
         ]);
     }
 
+    // -- helpers -------------------------------------------------------------------------------
+
     /**
+     * @return array<string, mixed>|null
+     */
+    private static function arrayOrNull(mixed $value): ?array
+    {
+        return \is_array($value) ? self::stringKeys($value) : null;
+    }
+
+    /**
+     * @param array<array-key, mixed> $data
+     *
      * @return array<string, mixed>
      */
-    private function normalizeResponse(mixed $response): array
+    private static function stringKeys(array $data): array
     {
-        if (is_array($response)) {
-            if (array_is_list($response)) {
-                return ['messages' => $response];
-            }
+        $result = [];
 
-            /* @var array<string, mixed> $response */
-            return $response;
+        foreach ($data as $key => $value) {
+            $result[(string) $key] = $value;
         }
 
-        if (is_object($response) && method_exists($response, 'toArray')) {
-            $array = $response->toArray();
-            if (!is_array($array)) {
-                return ['value' => $array];
+        return $result;
+    }
+
+    /**
+     * Keeps scalars and nested arrays of scalars, dropping nulls and objects.
+     *
+     * @param array<array-key, mixed> $data
+     *
+     * @return array<string, mixed>
+     */
+    private static function filterSerializable(array $data): array
+    {
+        $filtered = [];
+
+        foreach ($data as $key => $value) {
+            if ($value === null) {
+                continue;
             }
 
-            if (array_is_list($array)) {
-                return ['messages' => $array];
+            if (\is_array($value)) {
+                $filtered[(string) $key] = self::filterSerializableNested($value);
+
+                continue;
             }
 
-            /* @var array<string, mixed> $array */
-            return $array;
+            if (\is_scalar($value)) {
+                $filtered[(string) $key] = $value;
+            }
         }
 
-        if (is_bool($response)) {
-            return ['ok' => $response];
+        return $filtered;
+    }
+
+    /**
+     * @param array<array-key, mixed> $data
+     *
+     * @return array<array-key, mixed>
+     */
+    private static function filterSerializableNested(array $data): array
+    {
+        $filtered = [];
+
+        foreach ($data as $key => $value) {
+            if ($value === null) {
+                continue;
+            }
+
+            if (\is_array($value)) {
+                $filtered[$key] = self::filterSerializableNested($value);
+
+                continue;
+            }
+
+            if (\is_scalar($value)) {
+                $filtered[$key] = $value;
+            }
         }
 
-        return ['value' => $response];
+        return $filtered;
     }
 }

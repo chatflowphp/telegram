@@ -30,11 +30,19 @@ require_once __DIR__ . '/bootstrap.php';
 
 use ChatFlow\Telegram\Examples\StarterBot\StarterBotFactory;
 
-$token = $_ENV['TELEGRAM_BOT_TOKEN']
-    ?? $_ENV['TELEGRAM_TOKEN']
-    ?? getenv('TELEGRAM_BOT_TOKEN')
-    ?: (getenv('TELEGRAM_TOKEN') ?: '');
-if (!is_string($token) || $token === '') {
+$token = '';
+
+foreach (['TELEGRAM_BOT_TOKEN', 'TELEGRAM_TOKEN'] as $variable) {
+    $candidate = $_ENV[$variable] ?? getenv($variable);
+
+    if (is_string($candidate) && $candidate !== '') {
+        $token = $candidate;
+
+        break;
+    }
+}
+
+if ($token === '') {
     fwrite(STDERR, "TELEGRAM_BOT_TOKEN is not configured\n");
     exit(1);
 }

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace ChatFlow\Telegram\Examples\MiniShop;
 
 use ChatFlow\Core\Context;
-use ChatFlow\FSM\BaseScene;
+use ChatFlow\Scene\BaseScene;
 use ChatFlow\View\MediaAttachment;
 use ChatFlow\View\View;
 
@@ -62,15 +62,17 @@ final class ShopScene extends BaseScene
     ];
 
     public function __construct(
-        private readonly OrderService $orderService
-    ) {
-    }
+        private readonly OrderService $orderService,
+    ) {}
 
     public function handle(Context $ctx): void
     {
         $ctx->render($this->homeView($ctx));
     }
 
+    /**
+     * @param array<string, mixed> $params
+     */
     public function onShowCatalog(Context $ctx, array $params = []): void
     {
         $ctx->ack();
@@ -87,11 +89,11 @@ final class ShopScene extends BaseScene
         $ctx->render(
             View::text(
                 "Featured deal\n\n{$product['name']}\n{$product['summary']}\nPrice: {$this->formatMoney($product['price'])} RUB\n\n" .
-                'Telegram keeps this navigational message editable; the product photo is sent as a separate media reply.'
+                'Telegram keeps this navigational message editable; the product photo is sent as a separate media reply.',
             )
                 ->addActionRow($this->sceneAction('Send product photo', 'onSendFeaturedPhoto'))
                 ->addActionRow($this->sceneAction('Add featured item', 'onAddFeatured'))
-                ->addActionRow($this->sceneAction('Back to home', 'onShowHome'))
+                ->addActionRow($this->sceneAction('Back to home', 'onShowHome')),
         );
     }
 
@@ -102,7 +104,7 @@ final class ShopScene extends BaseScene
         $product = $this->featuredProduct();
         $ctx->reply(
             View::text("Product photo: {$product['name']}")
-                ->addMedia(new MediaAttachment('image', $product['image']))
+                ->addMedia(new MediaAttachment('image', $product['image'])),
         );
     }
 
@@ -111,9 +113,12 @@ final class ShopScene extends BaseScene
         $this->onAddToCart($ctx, ['id' => $this->featuredProduct()['id']]);
     }
 
+    /**
+     * @param array<string, mixed> $params
+     */
     public function onAddToCart(Context $ctx, array $params = []): void
     {
-        $productId = (int) ($params['id'] ?? 0);
+        $productId = is_numeric($params['id'] ?? null) ? (int) $params['id'] : 0;
         $product = $this->findProductById($productId);
 
         if ($product === null) {
@@ -125,7 +130,7 @@ final class ShopScene extends BaseScene
         $cart[$productId] = ($cart[$productId] ?? 0) + 1;
         $ctx->session()->set('cart', $cart);
 
-        $ctx->ack(sprintf('%s added to the cart.', $product['name']));
+        $ctx->ack(\sprintf('%s added to the cart.', $product['name']));
     }
 
     public function onViewCart(Context $ctx): void
@@ -150,7 +155,6 @@ final class ShopScene extends BaseScene
             return;
         }
 
-        $ctx->session()->set('cart_items', $cartItems);
         $ctx->ack('Moving to checkout');
         $ctx->enter(CheckoutScene::class, ['cart_items' => $cartItems], 'Shop');
     }
@@ -174,38 +178,38 @@ final class ShopScene extends BaseScene
 
         return View::text(
             "Storefront\n\n" .
-            'A Telegram-first shop example with inline callbacks, editable screens, media replies, sessions and checkout validation.'
+            'A Telegram-first shop example with inline callbacks, editable screens, media replies, sessions and checkout validation.',
         )
             ->addActionRow($this->sceneAction('Browse catalog', 'onShowCatalog', ['page' => 1]))
             ->addActionRow(
                 $this->sceneAction('Featured deal', 'onShowFeatured'),
-                $this->sceneAction(sprintf('Cart (%d)', $cartCount), 'onViewCart')
+                $this->sceneAction(\sprintf('Cart (%d)', $cartCount), 'onViewCart'),
             );
     }
 
     private function catalogView(Context $ctx, int $page): View
     {
-        $totalPages = (int) ceil(count($this->products) / self::ITEMS_PER_PAGE);
+        $totalPages = (int) ceil(\count($this->products) / self::ITEMS_PER_PAGE);
         $offset = ($page - 1) * self::ITEMS_PER_PAGE;
-        $pageProducts = array_slice($this->products, $offset, self::ITEMS_PER_PAGE);
+        $pageProducts = \array_slice($this->products, $offset, self::ITEMS_PER_PAGE);
 
         $lines = [];
         $view = View::text('');
 
         foreach ($pageProducts as $product) {
-            $lines[] = sprintf(
+            $lines[] = \sprintf(
                 "%s - %s RUB\n%s",
                 $product['name'],
                 $this->formatMoney($product['price']),
-                $product['summary']
+                $product['summary'],
             );
 
             $view = $view->addActionRow(
                 $this->sceneAction(
-                    sprintf('Add %s (%s RUB)', $product['name'], $this->formatMoney($product['price'])),
+                    \sprintf('Add %s (%s RUB)', $product['name'], $this->formatMoney($product['price'])),
                     'onAddToCart',
-                    ['id' => $product['id']]
-                )
+                    ['id' => $product['id']],
+                ),
             );
         }
 
@@ -222,16 +226,16 @@ final class ShopScene extends BaseScene
 
         return $view
             ->withText(
-                sprintf(
+                \sprintf(
                     "Catalog page %d/%d\n\n%s",
                     $page,
                     $totalPages,
-                    implode("\n\n", $lines)
-                )
+                    implode("\n\n", $lines),
+                ),
             )
             ->addActionRow(
                 $this->sceneAction('View cart', 'onViewCart'),
-                $this->sceneAction('Home', 'onShowHome')
+                $this->sceneAction('Home', 'onShowHome'),
             );
     }
 
@@ -245,7 +249,7 @@ final class ShopScene extends BaseScene
         if (!$isEmpty) {
             $view = $view->addActionRow(
                 $this->sceneAction('Checkout', 'onCheckout'),
-                $this->sceneAction('Clear cart', 'onClearCart')
+                $this->sceneAction('Clear cart', 'onClearCart'),
             );
         }
 
@@ -284,7 +288,7 @@ final class ShopScene extends BaseScene
         $items = [];
 
         foreach ($cart as $productId => $quantity) {
-            $product = $this->findProductById((int) $productId);
+            $product = $this->findProductById($productId);
             if ($product === null) {
                 continue;
             }
@@ -303,7 +307,7 @@ final class ShopScene extends BaseScene
     private function resolvePage(mixed $value): int
     {
         $page = is_numeric($value) ? (int) $value : 1;
-        $totalPages = max(1, (int) ceil(count($this->products) / self::ITEMS_PER_PAGE));
+        $totalPages = max(1, (int) ceil(\count($this->products) / self::ITEMS_PER_PAGE));
 
         return max(1, min($page, $totalPages));
     }

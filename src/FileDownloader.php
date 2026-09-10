@@ -10,9 +10,8 @@ use Telegram\Bot\Exceptions\TelegramSDKException;
 final class FileDownloader
 {
     public function __construct(
-        private readonly Api $api
-    ) {
-    }
+        private readonly Api $api,
+    ) {}
 
     /**
      * @throws TelegramSDKException

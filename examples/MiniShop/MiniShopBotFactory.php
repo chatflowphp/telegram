@@ -25,9 +25,9 @@ final class MiniShopBotFactory
             basePath: $basePath,
             api: $api,
             runtimeObserver: $runtimeObserver,
+            storage: $storage ?? new FileStorage($basePath . '/storage/minishop'),
         );
 
-        $bot->useStorage($storage ?? new FileStorage($basePath . '/storage/minishop'));
         (new MiniShopFlow($orderService))->register($bot);
 
         return $bot;

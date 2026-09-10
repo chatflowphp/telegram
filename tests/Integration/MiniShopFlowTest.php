@@ -16,39 +16,38 @@ use ChatFlow\Telegram\Testing\TelegramBotTester;
 use PHPUnit\Framework\TestCase;
 use Telegram\Bot\Api;
 
-class MiniShopFlowTest extends TestCase
+final class MiniShopFlowTest extends TestCase
 {
     private Bot $bot;
 
     private TelegramBotTester $tester;
 
-    private MockHttpClient $mockClient;
-
     private OrderService $orderService;
 
     protected function setUp(): void
     {
-        $this->mockClient = new MockHttpClient();
-        $api = new Api('TEST_TOKEN', false, $this->mockClient);
+        $mockClient = new MockHttpClient();
+        $api = new Api('TEST_TOKEN', false, $mockClient);
         $this->orderService = new OrderService();
 
         $this->bot = MiniShopBotFactory::create(
             token: 'TEST_TOKEN',
-            basePath: dirname(__DIR__, 2),
+            basePath: \dirname(__DIR__, 2),
             api: $api,
             storage: new MemoryStorage(),
             orderService: $this->orderService,
         );
 
-        $this->tester = new TelegramBotTester($this->bot, $this->mockClient);
+        $this->tester = new TelegramBotTester($this->bot, $mockClient);
     }
 
-    public function test_bot_implements_shared_flow_runtime_contract(): void
+    public function testBotImplementsSharedFlowRuntimeContract(): void
     {
         self::assertInstanceOf(FlowRuntimeInterface::class, $this->bot);
+        self::assertStringContainsString('stateDiagram-v2', $this->bot->getTransitions()->toMermaid());
     }
 
-    public function test_start_route_prefix_callback_featured_screen_and_media_reply(): void
+    public function testStartRoutePrefixCallbackFeaturedScreenAndMediaReply(): void
     {
         $this->tester
             ->sendCommand('/start')
@@ -73,7 +72,7 @@ class MiniShopFlowTest extends TestCase
             ->assertSee('Storefront');
     }
 
-    public function test_checkout_flow_validates_phone_downloads_receipt_and_records_order(): void
+    public function testCheckoutFlowValidatesPhoneAndRecordsOrder(): void
     {
         $this->tester
             ->sendCommand('/start')
@@ -99,21 +98,40 @@ class MiniShopFlowTest extends TestCase
             ->sendMessage('+79991234567')
             ->assertNotInScene()
             ->assertSee('Order #1000 is confirmed.')
-            ->assertKeyboardHas('Back to storefront');
+            ->assertKeyboardHas('Back to storefront')
+            ->assertSessionMissing('cart')
+            ->assertSessionMissing('cart_items');
 
         $orders = $this->orderService->getOrders();
 
         self::assertCount(1, $orders);
         self::assertSame('+79991234567', $orders[0]['phone']);
         self::assertSame(84990, $orders[0]['total']);
-
-        $session = $this->bot->getStateManager()?->loadSession('123456789');
-        self::assertNotNull($session);
-        self::assertFalse($session->has('cart'));
-        self::assertFalse($session->has('cart_items'));
     }
 
-    public function test_product_lookup_errors_are_reported_via_typed_exception_handler(): void
+    public function testCheckoutIsGuardedByTheCartAndCancelReturnsToTheShop(): void
+    {
+        $this->tester
+            ->sendCommand('/start')
+            ->clear()
+            ->clickButton('landing:shop')
+            ->clear()
+            ->clickSceneAction([ShopScene::class, 'onCheckout'])
+            ->assertScene(ShopScene::class)
+            ->assertEndpointCalled('answerCallbackQuery')
+            ->clear()
+            ->clickSceneAction([ShopScene::class, 'onAddToCart'], ['id' => 2])
+            ->clear()
+            ->clickSceneAction([ShopScene::class, 'onCheckout'])
+            ->assertScene(CheckoutScene::class)
+            ->clear()
+            ->sendMessage('Cancel checkout')
+            ->assertSee('Checkout cancelled.')
+            ->assertScene(ShopScene::class)
+            ->assertSee('Storefront');
+    }
+
+    public function testProductLookupErrorsAreReportedViaTypedExceptionHandler(): void
     {
         $this->tester
             ->sendCommand('/start')
@@ -123,10 +141,12 @@ class MiniShopFlowTest extends TestCase
             ->clickSceneAction([ShopScene::class, 'onAddToCart'], ['id' => 999]);
 
         $requests = $this->tester->getRequests();
-        $lastRequest = $requests[array_key_last($requests)];
+        $lastRequest = end($requests);
 
+        self::assertNotFalse($lastRequest);
         self::assertSame('answerCallbackQuery', $lastRequest['endpoint']);
         self::assertSame('This product is no longer available.', $lastRequest['params']['text'] ?? null);
         self::assertTrue((bool) ($lastRequest['params']['show_alert'] ?? false));
+        $this->tester->assertScene(ShopScene::class);
     }
 }

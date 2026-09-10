@@ -11,7 +11,9 @@ use Telegram\Bot\HttpClients\HttpClientInterface;
 
 final class MockHttpClient implements HttpClientInterface
 {
-    /** @var array<int, array{endpoint: string, method: string, params: array<string, mixed>}> */
+    /**
+     * @var list<array{endpoint: string, method: string, params: array<string, mixed>}>
+     */
     private array $requests = [];
 
     /** @var array<string, array{code: int, description: string}> */
@@ -30,10 +32,10 @@ final class MockHttpClient implements HttpClientInterface
         string $method,
         array $headers = [],
         array $options = [],
-        bool $isAsyncRequest = false
+        bool $isAsyncRequest = false,
     ): ResponseInterface|PromiseInterface {
-        if (isset($options['sink']) && is_string($options['sink'])) {
-            $dir = dirname($options['sink']);
+        if (isset($options['sink']) && \is_string($options['sink'])) {
+            $dir = \dirname($options['sink']);
             if (!is_dir($dir)) {
                 mkdir($dir, 0755, true);
             }
@@ -44,8 +46,8 @@ final class MockHttpClient implements HttpClientInterface
         }
 
         $path = parse_url($url, PHP_URL_PATH);
-        $endpoint = basename(is_string($path) ? $path : '');
-        $params = $this->normalizeParams($options);
+        $endpoint = basename(\is_string($path) ? $path : '');
+        $params = $this->normalizeParams($this->normalizeAssocParams($options));
 
         $this->requests[] = [
             'endpoint' => $endpoint,
@@ -71,7 +73,7 @@ final class MockHttpClient implements HttpClientInterface
     }
 
     /**
-     * @return array<int, array{endpoint: string, method: string, params: array<string, mixed>}>
+     * @return list<array{endpoint: string, method: string, params: array<string, mixed>}>
      */
     public function getRequests(): array
     {
@@ -127,15 +129,15 @@ final class MockHttpClient implements HttpClientInterface
      */
     private function normalizeParams(array $options): array
     {
-        if (isset($options['multipart']) && is_array($options['multipart'])) {
+        if (isset($options['multipart']) && \is_array($options['multipart'])) {
             $params = [];
             foreach ($options['multipart'] as $item) {
-                if (!is_array($item) || !isset($item['name']) || !is_string($item['name']) || !array_key_exists('contents', $item)) {
+                if (!\is_array($item) || !isset($item['name']) || !\is_string($item['name']) || !\array_key_exists('contents', $item)) {
                     continue;
                 }
 
                 $contents = $item['contents'];
-                $params[$item['name']] = is_resource($contents) || is_object($contents)
+                $params[$item['name']] = \is_resource($contents) || \is_object($contents)
                     ? '[BINARY DATA]'
                     : $contents;
             }
@@ -145,12 +147,22 @@ final class MockHttpClient implements HttpClientInterface
 
         foreach (['form_params', 'json', 'query'] as $key) {
             $payload = $options[$key] ?? null;
-            if (is_array($payload)) {
+            if (\is_array($payload)) {
                 return $this->normalizeAssocParams($payload);
             }
         }
 
         return [];
+    }
+
+    /**
+     * @param array<string, mixed> $params
+     */
+    private static function stringParam(array $params, string $key): ?string
+    {
+        $value = $params[$key] ?? null;
+
+        return \is_string($value) ? $value : (is_numeric($value) ? (string) $value : null);
     }
 
     /**
@@ -163,7 +175,7 @@ final class MockHttpClient implements HttpClientInterface
         $normalized = [];
 
         foreach ($params as $key => $value) {
-            if (is_string($key)) {
+            if (\is_string($key)) {
                 $normalized[$key] = $value;
             }
         }
@@ -171,6 +183,9 @@ final class MockHttpClient implements HttpClientInterface
         return $normalized;
     }
 
+    /**
+     * @param array<string, mixed> $params
+     */
     private function generateMockResult(string $endpoint, array $params): mixed
     {
         $messageMethods = [
@@ -182,33 +197,33 @@ final class MockHttpClient implements HttpClientInterface
         if ($endpoint === 'sendMediaGroup') {
             $chatId = isset($params['chat_id']) && is_numeric($params['chat_id']) ? (int) $params['chat_id'] : 12345;
             $media = [];
-            if (isset($params['media']) && is_string($params['media'])) {
+            if (isset($params['media']) && \is_string($params['media'])) {
                 $decoded = json_decode($params['media'], true);
-                if (is_array($decoded)) {
+                if (\is_array($decoded)) {
                     $media = $decoded;
                 }
             }
 
-            return array_map(static fn (mixed $item, int $index): array => [
-                'message_id' => count($media) + $index + 1,
+            return array_map(static fn(mixed $item, int $index): array => [
+                'message_id' => \count($media) + $index + 1,
                 'date' => time(),
                 'chat' => [
                     'id' => $chatId,
                     'type' => 'private',
                 ],
-                'caption' => is_array($item) ? (string) ($item['caption'] ?? '') : '',
+                'caption' => \is_array($item) && \is_string($item['caption'] ?? null) ? $item['caption'] : '',
             ], $media, array_keys($media));
         }
 
-        if (in_array($endpoint, $messageMethods, true)) {
+        if (\in_array($endpoint, $messageMethods, true)) {
             return [
-                'message_id' => count($this->requests),
+                'message_id' => \count($this->requests),
                 'date' => time(),
                 'chat' => [
                     'id' => isset($params['chat_id']) && is_numeric($params['chat_id']) ? (int) $params['chat_id'] : 12345,
                     'type' => 'private',
                 ],
-                'text' => (string) ($params['text'] ?? $params['caption'] ?? ''),
+                'text' => self::stringParam($params, 'text') ?? self::stringParam($params, 'caption') ?? '',
             ];
         }
 

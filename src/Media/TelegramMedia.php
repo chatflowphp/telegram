@@ -18,8 +18,8 @@ final class TelegramMedia
         private readonly ?int $duration = null,
         private readonly ?bool $supportsStreaming = null,
     ) {
-        if (!in_array($type, ['photo', 'document', 'video', 'audio', 'animation'], true)) {
-            throw new InvalidArgumentException(sprintf('Unsupported Telegram media type "%s".', $type));
+        if (!\in_array($type, ['photo', 'document', 'video', 'audio', 'animation'], true)) {
+            throw new InvalidArgumentException(\sprintf('Unsupported Telegram media type "%s".', $type));
         }
     }
 

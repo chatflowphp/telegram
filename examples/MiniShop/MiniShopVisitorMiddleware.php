@@ -13,12 +13,12 @@ final class MiniShopVisitorMiddleware implements MiddlewareInterface
     {
         $user = $ctx->getUser();
         $meta = $user?->getMeta() ?? [];
-        $nestedUser = is_array($meta['user'] ?? null) ? $meta['user'] : [];
+        $nestedUser = \is_array($meta['user'] ?? null) ? $meta['user'] : [];
         $username = $meta['username'] ?? ($nestedUser['username'] ?? null);
 
-        $label = is_string($username) && $username !== ''
+        $label = \is_string($username) && $username !== ''
             ? '@' . $username
-            : sprintf('user-%s', (string) ($user?->getId() ?? $ctx->getConversationId()));
+            : \sprintf('user-%s', (string) ($user?->getId() ?? $ctx->getConversationId()));
 
         $ctx->set('visitor', $label);
 

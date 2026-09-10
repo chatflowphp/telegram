@@ -24,7 +24,7 @@ final class InMemoryTelegramMediaGroupStore implements TelegramMediaGroupStoreIn
             ];
         }
 
-        usort($parts, static fn (array $a, array $b): int => $a['message_id'] <=> $b['message_id']);
+        usort($parts, static fn(array $a, array $b): int => $a['message_id'] <=> $b['message_id']);
 
         return $parts;
     }
