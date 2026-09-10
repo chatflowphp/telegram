@@ -3,6 +3,7 @@
     "description": "Telegram adapter for the ChatFlow conversational runtime.",
     "type": "library",
     "license": "MIT",
+    "keywords": ["telegram", "bot", "chatbot", "state-machine", "scenes"],
     "homepage": "https://github.com/chatflowphp/telegram",
     "authors": [
         {
@@ -18,8 +19,20 @@
     },
     "require": {
         "php": "^8.2",
-        "chatflowphp/core": "^1.0",
-        "irazasyed/telegram-bot-sdk": "^3.14"
+        "chatflowphp/core": "^2.0",
+        "irazasyed/telegram-bot-sdk": "^3.14",
+        "psr/log": "^3.0"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.64",
+        "phpstan/phpstan": "^2.1",
+        "phpstan/phpstan-deprecation-rules": "^2.0",
+        "phpstan/phpstan-strict-rules": "^2.0",
+        "phpunit/phpunit": "^10.5",
+        "vlucas/phpdotenv": "^5.6"
+    },
+    "suggest": {
+        "vlucas/phpdotenv": "Load bot tokens from a .env file in the example entrypoints."
     },
     "autoload": {
         "psr-4": {
@@ -32,25 +45,24 @@
             "ChatFlow\\Telegram\\Tests\\": "tests/"
         }
     },
-    "require-dev": {
-        "friendsofphp/php-cs-fixer": "^3.93",
-        "phpstan/phpstan": "^2.1",
-        "phpunit/phpunit": "^10.5"
-    },
     "scripts": {
-        "test": "vendor/bin/phpunit -c phpunit.xml",
-        "analyse": "vendor/bin/phpstan analyse -c phpstan.neon --memory-limit=1G",
+        "cs": "php-cs-fixer fix --dry-run --diff",
+        "cs:fix": "php-cs-fixer fix",
+        "stan": "phpstan analyse --memory-limit=1G",
+        "test": "phpunit",
         "check": [
-            "@analyse",
+            "@composer validate --strict",
+            "@cs",
+            "@stan",
             "@test"
-        ],
-        "cs-fix": "vendor/bin/php-cs-fixer fix --config=.php-cs-fixer.php",
-        "cs-check": "vendor/bin/php-cs-fixer fix --config=.php-cs-fixer.php --dry-run --diff"
+        ]
     },
     "config": {
         "sort-packages": true,
         "allow-plugins": {
             "php-http/discovery": true
         }
-    }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
 }

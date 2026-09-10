@@ -2,62 +2,76 @@ name: CI
 
 on:
   push:
+    branches:
+      - main
+      - v2
   pull_request:
 
 jobs:
-  check:
+  tests:
+    name: Tests (PHP ${{ matrix.php }}, ${{ matrix.dependencies }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        php-version: ['8.2', '8.3', '8.4']
-
+        php: ['8.2', '8.3', '8.4']
+        dependencies: [highest]
+        include:
+          - php: '8.2'
+            dependencies: lowest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Checkout local package dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          ref="${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}"
-          automata_repo="https://github.com/chatflowphp/automata.git"
-          core_repo="https://github.com/chatflowphp/core.git"
-
-          if git ls-remote --exit-code --heads "$automata_repo" "$ref" >/dev/null 2>&1; then
-            git clone --depth=1 --branch "$ref" "$automata_repo" ../chatflow-automata
-          else
-            git clone --depth=1 "$automata_repo" ../chatflow-automata
-          fi
-
-          if git ls-remote --exit-code --heads "$core_repo" "$ref" >/dev/null 2>&1; then
-            git clone --depth=1 --branch "$ref" "$core_repo" ../chatflow-core
-          else
-            git clone --depth=1 "$core_repo" ../chatflow-core
-          fi
-
-          composer config repositories.chatflowphp-automata '{"type":"path","url":"../chatflow-automata","options":{"symlink":false,"versions":{"chatflowphp/automata":"1.0.0"}}}'
-          composer config repositories.chatflowphp-core '{"type":"path","url":"../chatflow-core","options":{"symlink":false,"versions":{"chatflowphp/core":"1.0.0"}}}'
+      - uses: actions/checkout@v4
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: ${{ matrix.php-version }}
+          php-version: ${{ matrix.php }}
           coverage: none
+          tools: composer
 
-      - name: Cache Composer dependencies
-        uses: actions/cache@v4
+      - name: Link chatflowphp packages from git
+        uses: ./.github/actions/link-packages
+
+      - name: Install dependencies (highest)
+        if: matrix.dependencies == 'highest'
+        run: composer update --no-interaction --no-progress --prefer-dist
+
+      - name: Install dependencies (lowest)
+        if: matrix.dependencies == 'lowest'
+        run: composer update --no-interaction --no-progress --prefer-dist --prefer-lowest
+
+      - name: Run tests
+        run: composer test
+
+      - name: Run example scenarios
+        run: |
+          php examples/StarterBot/mock.php
+          php examples/MiniShop/mock.php
+
+  quality:
+    name: Static analysis and code style
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
         with:
-          path: vendor
-          key: ${{ runner.os }}-php-${{ matrix.php-version }}-${{ hashFiles('composer.json') }}
-          restore-keys: ${{ runner.os }}-php-${{ matrix.php-version }}-
+          php-version: '8.3'
+          coverage: none
+          tools: composer
+
+      - name: Validate composer.json
+        run: composer validate --strict
+
+      - name: Link chatflowphp packages from git
+        uses: ./.github/actions/link-packages
 
       - name: Install dependencies
-        run: composer install --prefer-dist --no-interaction --no-progress
+        run: composer update --no-interaction --no-progress --prefer-dist
 
-      - name: Static analysis and tests
-        run: composer check
+      - name: Code style
+        run: composer cs
 
-      - name: Coding standards
-        run: composer cs-check
+      - name: PHPStan
+        run: composer stan
