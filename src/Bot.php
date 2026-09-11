@@ -30,6 +30,7 @@ use ChatFlow\Storage\Drivers\MemoryStorage;
 use ChatFlow\Storage\StorageInterface;
 use ChatFlow\Telegram\Callback\FileTelegramCallbackStore;
 use ChatFlow\Telegram\Callback\TelegramCallbackPayloadEncoder;
+use ChatFlow\Telegram\Exception\TelegramRateLimitException;
 use ChatFlow\Telegram\I18n\TelegramLocaleResolver;
 use ChatFlow\Telegram\MediaGroup\FileTelegramMediaGroupStore;
 use ChatFlow\Telegram\MediaGroup\TelegramMediaGroupCollector;
@@ -75,6 +76,8 @@ class Bot implements FlowRuntimeInterface
     private readonly TelegramMediaGroupCollector $mediaGroupCollector;
 
     private readonly TelegramPlatformAdapter $adapter;
+
+    private readonly TelegramRateLimiter $rateLimiter;
 
     private readonly ?RuntimeObserverInterface $runtimeObserver;
 
@@ -142,6 +145,7 @@ class Bot implements FlowRuntimeInterface
         bool $debug = false,
         ?string $callbackSecret = null,
         private readonly ConversationScope $conversationScope = ConversationScope::Chat,
+        ?TelegramRateLimiter $rateLimiter = null,
     ) {
         $this->container = $container ?? new Container();
         $this->logger = $logger ?? new NullLogger();
@@ -151,7 +155,8 @@ class Bot implements FlowRuntimeInterface
         $this->sessionTtlSeconds = $sessionTtlSeconds;
 
         $fileDownloader = new FileDownloader($this->api);
-        $this->publisher = $publisher ?? new TelegramPublisher($this->api);
+        $this->rateLimiter = $rateLimiter ?? new TelegramRateLimiter();
+        $this->publisher = $publisher ?? new TelegramPublisher($this->api, $this->rateLimiter);
         $this->router = $router ?? new Router();
         $this->scenes = $sceneRegistry ?? new SceneRegistry($this->container);
         $this->transitions = new SceneTransitions($this->scenes);
@@ -175,6 +180,7 @@ class Bot implements FlowRuntimeInterface
             $screenManager,
             $this->logger,
             $this->conversationScope,
+            $this->rateLimiter,
         );
 
         $this->container->set(Api::class, $this->api);
@@ -891,6 +897,15 @@ class Bot implements FlowRuntimeInterface
             $this->logger->error('Telegram API error', [
                 'code' => $exception->getCode(),
                 'message' => $exception->getMessage(),
+            ]);
+        });
+
+        // A rate limit is not a bug in the bot: it is Telegram asking to slow down, and the wait
+        // it reported is the only useful part of it.
+        $this->errorHandler->register(TelegramRateLimitException::class, function (Throwable $exception, ?Context $context): void {
+            $this->logger->warning('Telegram rate limit reached', [
+                'retry_after' => $exception instanceof TelegramRateLimitException ? $exception->retryAfter : null,
+                'conversation_id' => $context?->getConversationId(),
             ]);
         });
     }

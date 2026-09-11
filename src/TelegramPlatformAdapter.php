@@ -25,6 +25,7 @@ use ChatFlow\Outbound\RenderEffect;
 use ChatFlow\Outbound\ReplyEffect;
 use ChatFlow\Platform\PlatformCapabilities;
 use ChatFlow\Telegram\Callback\TelegramCallbackPayloadEncoder;
+use ChatFlow\Telegram\Exception\TelegramRateLimitException;
 use ChatFlow\Telegram\MediaGroup\TelegramMediaGroupCollector;
 use ChatFlow\Telegram\UI\TelegramScreenManager;
 use ChatFlow\View\Action;
@@ -50,6 +51,8 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
 
     private readonly LoggerInterface $logger;
 
+    private readonly TelegramRateLimiter $rateLimiter;
+
     public function __construct(
         private readonly Api $api,
         private readonly FileDownloader $fileDownloader,
@@ -57,8 +60,10 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
         private readonly ?TelegramScreenManager $screenManager = null,
         ?LoggerInterface $logger = null,
         private readonly ConversationScope $conversationScope = ConversationScope::Chat,
+        ?TelegramRateLimiter $rateLimiter = null,
     ) {
         $this->logger = $logger ?? new NullLogger();
+        $this->rateLimiter = $rateLimiter ?? new TelegramRateLimiter();
     }
 
     /**
@@ -167,19 +172,36 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
         try {
             if ($effect instanceof ReplyEffect) {
                 return DeliveryResult::success('telegram_reply_delivered', [
-                    'telegram' => TelegramPublisher::normalizeResponse($this->sendView($context, $effect->getView(), false)),
+                    'telegram' => TelegramPublisher::normalizeResponse(
+                        $this->rateLimiter->run(fn(): mixed => $this->sendView($context, $effect->getView(), false)),
+                    ),
                 ]);
             }
 
             if ($effect instanceof RenderEffect) {
                 return DeliveryResult::success('telegram_render_delivered', [
-                    'telegram' => TelegramPublisher::normalizeResponse($this->sendView($context, $effect->getView(), true)),
+                    'telegram' => TelegramPublisher::normalizeResponse(
+                        $this->rateLimiter->run(fn(): mixed => $this->sendView($context, $effect->getView(), true)),
+                    ),
                 ]);
             }
 
             if ($effect instanceof AckEffect) {
-                return DeliveryResult::success($this->deliverAck($context, $effect));
+                return DeliveryResult::success($this->rateLimiter->run(fn(): string => $this->deliverAck($context, $effect)));
             }
+        } catch (TelegramRateLimitException $exception) {
+            // The conversation is already stored; only the delivery is refused, and the caller
+            // learns how long Telegram wants to wait.
+            $this->logger->warning('Telegram rate limit reached', [
+                'conversation_id' => $context->getConversationId(),
+                'effect' => $effect->getType(),
+                'retry_after' => $exception->retryAfter,
+            ]);
+
+            return DeliveryResult::error('telegram_rate_limited', [
+                'retry_after' => $exception->retryAfter,
+                'effect' => $effect->getType(),
+            ]);
         } catch (Throwable $exception) {
             return DeliveryResult::error('telegram_delivery_failed', [
                 'reason' => $exception->getMessage(),

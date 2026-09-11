@@ -19,6 +19,9 @@ final class MockHttpClient implements HttpClientInterface
     /** @var array<string, array{code: int, description: string}> */
     private array $failures = [];
 
+    /** @var array<string, array{retry_after: int, remaining: int}> */
+    private array $rateLimits = [];
+
     private int $timeOut = 30;
 
     private int $connectTimeOut = 10;
@@ -54,6 +57,20 @@ final class MockHttpClient implements HttpClientInterface
             'method' => $method,
             'params' => $params,
         ];
+
+        if (isset($this->rateLimits[$endpoint]) && $this->rateLimits[$endpoint]['remaining'] > 0) {
+            $retryAfter = $this->rateLimits[$endpoint]['retry_after'];
+            $this->rateLimits[$endpoint]['remaining']--;
+
+            $body = json_encode([
+                'ok' => false,
+                'error_code' => 429,
+                'description' => 'Too Many Requests: retry after ' . $retryAfter,
+                'parameters' => ['retry_after' => $retryAfter],
+            ], JSON_THROW_ON_ERROR);
+
+            return new Response(429, ['Content-Type' => 'application/json'], $body);
+        }
 
         if (isset($this->failures[$endpoint])) {
             $failure = $this->failures[$endpoint];
@@ -93,9 +110,18 @@ final class MockHttpClient implements HttpClientInterface
         ];
     }
 
+    /**
+     * Answers the next $times calls to the endpoint with 429 and the given `retry_after`.
+     */
+    public function rateLimitEndpoint(string $endpoint, int $retryAfter = 1, int $times = 1): void
+    {
+        $this->rateLimits[$endpoint] = ['retry_after' => $retryAfter, 'remaining' => $times];
+    }
+
     public function clearFailures(): void
     {
         $this->failures = [];
+        $this->rateLimits = [];
     }
 
     public function getTimeOut(): int

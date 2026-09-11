@@ -11,7 +11,29 @@ use Telegram\Bot\FileUpload\InputFile;
 
 final class TelegramPublisher
 {
-    public function __construct(private readonly Api $api) {}
+    private readonly TelegramRateLimiter $rateLimiter;
+
+    public function __construct(
+        private readonly Api $api,
+        ?TelegramRateLimiter $rateLimiter = null,
+    ) {
+        $this->rateLimiter = $rateLimiter ?? new TelegramRateLimiter();
+    }
+
+    /**
+     * Every Bot API call of the publisher goes through the rate limiter, so a throttled broadcast
+     * raises TelegramRateLimitException with the wait Telegram asked for instead of failing blind.
+     *
+     * @template T
+     *
+     * @param callable(): T $call
+     *
+     * @return T
+     */
+    private function call(callable $call): mixed
+    {
+        return $this->rateLimiter->run($call);
+    }
 
     public function sendMessage(
         string|int $chatId,
@@ -23,7 +45,7 @@ final class TelegramPublisher
             'text' => $text,
         ], $options?->toTelegramParams() ?? []);
 
-        $response = $this->api->sendMessage($params);
+        $response = $this->call(fn(): mixed => $this->api->sendMessage($params));
 
         return $this->singleResult($chatId, 'sendMessage', $response);
     }
@@ -70,15 +92,15 @@ final class TelegramPublisher
         $params[$field] = $media->getSource()->toSingleApiValue();
 
         if ($endpoint === 'sendPhoto') {
-            $response = $this->api->sendPhoto($params);
+            $response = $this->call(fn(): mixed => $this->api->sendPhoto($params));
         } elseif ($endpoint === 'sendDocument') {
-            $response = $this->api->sendDocument($params);
+            $response = $this->call(fn(): mixed => $this->api->sendDocument($params));
         } elseif ($endpoint === 'sendVideo') {
-            $response = $this->api->sendVideo($params);
+            $response = $this->call(fn(): mixed => $this->api->sendVideo($params));
         } elseif ($endpoint === 'sendAudio') {
-            $response = $this->api->sendAudio($params);
+            $response = $this->call(fn(): mixed => $this->api->sendAudio($params));
         } else {
-            $response = $this->api->sendAnimation($params);
+            $response = $this->call(fn(): mixed => $this->api->sendAnimation($params));
         }
 
         return $this->singleResult($chatId, $endpoint, $response);
@@ -104,7 +126,7 @@ final class TelegramPublisher
             ), JSON_THROW_ON_ERROR),
         ], $options?->toTelegramParams() ?? []);
 
-        $response = $this->api->sendMediaGroup($params);
+        $response = $this->call(fn(): mixed => $this->api->sendMediaGroup($params));
         $raw = self::normalizeResponse($response);
 
         return new TelegramDeliveryGroupResult(
@@ -121,11 +143,11 @@ final class TelegramPublisher
         string $text,
         ?TelegramMessageOptions $options = null,
     ): TelegramDeliveryResult {
-        $response = $this->api->editMessageText(array_merge([
+        $response = $this->call(fn(): mixed => $this->api->editMessageText(array_merge([
             'chat_id' => $chatId,
             'message_id' => $messageId,
             'text' => $text,
-        ], $options?->toTelegramParams() ?? []));
+        ], $options?->toTelegramParams() ?? [])));
 
         return $this->singleResult($chatId, 'editMessageText', $response);
     }
@@ -136,21 +158,21 @@ final class TelegramPublisher
         string $caption,
         ?TelegramMessageOptions $options = null,
     ): TelegramDeliveryResult {
-        $response = $this->api->editMessageCaption(array_merge([
+        $response = $this->call(fn(): mixed => $this->api->editMessageCaption(array_merge([
             'chat_id' => $chatId,
             'message_id' => $messageId,
             'caption' => $caption,
-        ], $options?->toTelegramParams() ?? []));
+        ], $options?->toTelegramParams() ?? [])));
 
         return $this->singleResult($chatId, 'editMessageCaption', $response);
     }
 
     public function deleteMessage(string|int $chatId, int $messageId): TelegramDeliveryResult
     {
-        $response = $this->api->deleteMessage([
+        $response = $this->call(fn(): mixed => $this->api->deleteMessage([
             'chat_id' => $chatId,
             'message_id' => $messageId,
-        ]);
+        ]));
 
         return new TelegramDeliveryResult($chatId, $messageId, 'deleteMessage', self::normalizeResponse($response));
     }
