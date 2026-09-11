@@ -12,7 +12,8 @@ $bot->onTelegramEvent('my_chat_member', static function (TelegramContext $telegr
 });
 ```
 
-Supported update types: `my_chat_member`, `chat_member`.
+Supported update types: `my_chat_member` and `chat_member`. Registering any other type throws:
+they are not dispatched here, and a handler that never runs is worse than an error.
 
 ## How They Run
 
@@ -34,8 +35,16 @@ Resolved through the container by type or name:
 
 `reply()`, `render()` and `ack()` queue effects that are delivered after the handler returns.
 
-## Unsupported Updates
+## Updates Without A Chat
 
-Updates without a chat (inline queries, chosen inline results, polls, shipping and pre-checkout
-queries) are not handled by the runtime: `handle()` returns `Result::noMatch('unsupported_update')`
-and no conversation is created. Use `Telegram\Bot\Api` directly for those.
+Inline queries, chosen inline results, polls, shipping and pre-checkout queries carry no chat, so
+they cannot become a conversation event. Handle them with `onRawUpdate()`:
+
+```php
+$bot->onRawUpdate('pre_checkout_query', static function (Api $api, array $update): void {
+    $api->answerPreCheckoutQuery(['pre_checkout_query_id' => $update['pre_checkout_query']['id'], 'ok' => true]);
+});
+```
+
+Without a handler `handle()` returns `Result::noMatch('unsupported_update')` and no conversation
+is created. See [Payments And Updates Without A Chat](payments.md).

@@ -37,7 +37,14 @@ $bot->onAction('shop:open', static function (Context $ctx): void {
 - Text: `onTextPrefix()`, `onTextRegex()`, `fallback()`.
 - Actions: `onAction()`, `onActionPrefix()` / `prefix()`, `onActionRegex()`.
 - Media outside scenes: `onMedia('photo', $handler)`, `onMedia('any', $handler)`.
-- Membership updates: `onTelegramEvent('my_chat_member', $handler)`.
+- Membership updates: `onTelegramEvent('my_chat_member', $handler)`; any other type is rejected.
+- Updates without a chat (payments, inline queries): `onRawUpdate('pre_checkout_query', $handler)`,
+  handled outside the conversation with `Telegram\Bot\Api` injected.
+- Deep links: `$ctx->getCommandArgument()` for "/start ref_abc123".
+- Groups: one conversation per chat by default, per member with
+  `conversationScope: ConversationScope::ChatAndUser`.
+- Localization: register `ChatFlow\I18n\TranslatorInterface`, add `LocaleMiddleware::class`,
+  translate with `$ctx->t()`.
 
 First registered route wins.
 

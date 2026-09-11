@@ -19,7 +19,11 @@ $bot = new Bot(
 
 Optional constructor arguments: `logger`, `container`, `webhookSecret`, `api`, `errorHandler`,
 `router`, `sceneRegistry`, `validationRegistry`, `runtimeObserver`, `callbackPayloadEncoder`,
-`mediaGroupCollector`, `publisher`, `storage`, `sessionTtlSeconds`, `debug`, `callbackSecret`.
+`mediaGroupCollector`, `publisher`, `storage`, `sessionTtlSeconds`, `debug`, `callbackSecret`,
+`conversationScope`.
+
+`conversationScope` decides what a conversation is in a group chat; see
+[Group Chats](groups.md).
 
 `basePath` is where the default file stores live: `storage/telegram-callbacks` and
 `storage/telegram-media-groups`. Directories are created on first use.
@@ -40,15 +44,17 @@ $bot->middleware([TypingMiddleware::class]);
 
 `handle()` accepts a Telegram SDK `Update` or a raw update array:
 
-1. `my_chat_member` / `chat_member` updates with an `onTelegramEvent()` handler become a global
+1. An update with an `onRawUpdate()` handler is dispatched outside the conversation runtime and
+   the result is returned; see [Payments And Updates Without A Chat](payments.md).
+2. `my_chat_member` / `chat_member` updates with an `onTelegramEvent()` handler become a global
    custom route.
-2. Album parts are collected by the media group collector; pending parts return
+3. Album parts are collected by the media group collector; pending parts return
    `Result::noMatch('telegram_media_group_pending')`.
-3. The update is normalized into a core inbound event. Updates without a chat and callback
+4. The update is normalized into a core inbound event. Updates without a chat and callback
    queries with forged data are skipped with `Result::noMatch('unsupported_update')`.
-4. Messages with attachments matching an `onMedia()` handler get a custom route that runs only
+5. Messages with attachments matching an `onMedia()` handler get a custom route that runs only
    when no scene is active.
-5. The core `Application` runs one tick: middleware, root route or scene, rollback on failure,
+6. The core `Application` runs one tick: middleware, root route or scene, rollback on failure,
    persistence, delivery of queued effects.
 
 ## Webhook
@@ -76,6 +82,7 @@ Schedulers, admin panels and other chats move conversations without a Telegram u
 
 ```php
 $bot->enterScene($chatId, ReviewScene::class, ['campaign' => 42]);   // asks now
+$bot->enterScene($chatId, ReviewScene::class, userId: $userId);      // one member of a group
 $bot->leaveScene($chatId);
 $bot->run($chatId, static function (Context $ctx): void {          // any handler, as a system tick
     $ctx->reply('Your report is ready');

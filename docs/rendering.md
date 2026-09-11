@@ -39,6 +39,10 @@ Telegram delivery strategy:
 When Telegram reports that the message is not modified (the user pressed a button that renders
 the same screen), the render is treated as success and nothing is deleted or resent.
 
+Outside a callback there is no message of the bot's to edit: after a text message, inside a scene
+step or during a system tick, `render()` sends a new message. Use it for the screen the user is
+looking at, and `reply()` when a new message is what you mean.
+
 Other render fallback failures are logged. The flow fails only if final delivery fails.
 
 ## Ack

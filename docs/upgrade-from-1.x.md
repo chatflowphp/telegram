@@ -39,6 +39,13 @@ spec has one.
 - In tests, `TelegramBotTester::clickButton()` signs payloads automatically; raw JSON via
   `clickCallbackData()` is rejected like any forged payload.
 
+## Update Types
+
+- `onTelegramEvent()` accepts only `my_chat_member` and `chat_member` and throws on anything
+  else; in 1.x an unknown type was accepted and silently never dispatched.
+- Updates without a chat (`pre_checkout_query`, `inline_query`, polls) are handled with
+  `onRawUpdate()` instead of being dropped. See [Payments](payments.md).
+
 ## Handlers
 
 - `onMedia()` and `onTelegramEvent()` handlers run through middleware and have session access.

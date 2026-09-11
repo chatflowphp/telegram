@@ -41,24 +41,27 @@ declared screen map.
 7. [Telegram Context](telegram-context.md)
 8. [Telegram Events](telegram-events.md)
 9. [Scenes And Dialogs](scenes-dialogs.md)
-10. [Media And Files](media-files.md)
-11. [Force Reply](force-reply.md)
-12. [Media Groups](media-groups.md)
-13. [Callback Payload Store](callback-payload-store.md)
-14. [Publishing](publishing.md)
-15. [Screen Manager](screen-manager.md)
-16. [Middleware](middleware.md)
-17. [Webhook And Polling](webhook-polling.md)
-18. [Testing](testing.md)
-19. [Deployment](deployment.md)
-20. [Examples](examples.md)
-21. [Upgrade From 1.x](upgrade-from-1.x.md)
-22. [AI Index](ai-index.md)
+10. [Group Chats](groups.md)
+11. [Media And Files](media-files.md)
+12. [Force Reply](force-reply.md)
+13. [Media Groups](media-groups.md)
+14. [Callback Payload Store](callback-payload-store.md)
+15. [Payments And Updates Without A Chat](payments.md)
+16. [Localization](localization.md)
+17. [Publishing](publishing.md)
+18. [Screen Manager](screen-manager.md)
+19. [Middleware](middleware.md)
+20. [Webhook And Polling](webhook-polling.md)
+21. [Testing](testing.md)
+22. [Deployment](deployment.md)
+23. [Examples](examples.md)
+24. [Upgrade From 1.x](upgrade-from-1.x.md)
+25. [AI Index](ai-index.md)
 
 ## Core Subset For Telegram Authors
 
 From `chatflowphp/core` read `Context`, `Routing`, `Scenes`, `Transitions`, `Views And
-Effects`, `Storage` and `Validation`. `Architecture` and `Application` are for adapter authors.
+Effects`, `Storage`, `Validation` and `Localization`. `Architecture` and `Application` are for adapter authors.
 
 ## Main Classes
 
@@ -70,6 +73,8 @@ Effects`, `Storage` and `Validation`. `Architecture` and `Application` are for a
 - `ChatFlow\Telegram\Callback\TelegramCallbackPayloadEncoder`, `DecodedCallback`
 - `ChatFlow\Telegram\MediaGroup\TelegramMediaGroupCollector`
 - `ChatFlow\Telegram\UI\TelegramScreenManager`
+- `ChatFlow\Telegram\ConversationScope`
+- `ChatFlow\Telegram\I18n\TelegramLocaleResolver`
 - `ChatFlow\Telegram\Testing\TelegramBotTester`, `MockHttpClient`
 
 ## Boundary Rule

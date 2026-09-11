@@ -6,6 +6,25 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- `Bot::onRawUpdate()` dispatches updates that carry no chat (`pre_checkout_query`,
+  `shipping_query`, `inline_query`, polls) to a handler with `Telegram\Bot\Api`, the raw update
+  and the type injected, so Telegram payments can be completed. See `docs/payments.md`.
+- `ConversationScope`: `ChatAndUser` gives every member of a group chat their own conversation
+  while messages still go to the chat; `Bot::run()`, `enterScene()` and `leaveScene()` take the
+  member with `userId:`, and `Bot::conversationIdFor()` exposes the key. See `docs/groups.md`.
+- `I18n\TelegramLocaleResolver` and a default resolver binding, so
+  `$bot->middleware([LocaleMiddleware::class])` makes a bot answer in the user's language. See
+  `docs/localization.md`.
+- `TelegramPlatformAdapter::chatIdFor()` resolves the chat a conversation belongs to, so delivery
+  no longer assumes the conversation id is the chat id.
+
+### Changed
+
+- `Bot::onTelegramEvent()` throws on an update type it does not dispatch instead of accepting a
+  handler that would never run.
+
 ## [2.0.0] - 2026-09-10
 
 Adapts to `chatflowphp/core` 2.0 (scenes as states on `chatflowphp/automata` 2.0) and fixes the

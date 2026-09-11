@@ -17,6 +17,25 @@ Commands are **global**: they run even while a scene is active, so `/start`, `/c
 `/help` always work. A scene can refuse them by returning `false` from `allowsGlobalRoutes()`.
 Turn a command into a root-only route with `->global(false)`.
 
+## Deep Links And Arguments
+
+`$ctx->getCommandArgument()` returns the text after the command, which is what a deep link
+(`https://t.me/your_bot?start=ref_abc123`) delivers as `/start ref_abc123`:
+
+```php
+$bot->command('start', static function (Context $ctx, ReferralService $referrals): void {
+    $referral = $ctx->getCommandArgument();
+
+    if ($referral !== '') {
+        $referrals->attach($ctx->getUserId(), $referral);
+    }
+
+    $ctx->reply('Welcome');
+});
+```
+
+The group form is handled as well: `/start@your_bot ref_abc123` yields the same argument.
+
 ## Core Route API
 
 ```php
