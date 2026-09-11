@@ -15,6 +15,7 @@ Stored 1.x sessions are discarded on first access.
 | `$bot->getConfig()` | removed; read your environment yourself |
 | `$bot->addProvider($provider)` | removed; register services on `$bot->getContainer()` |
 | `$bot->getStateManager()` | `$bot->getConversations()` |
+| `StateManager::enterScene($chatId, ...)` from a job | `$bot->enterScene($chatId, ...)` (sends now) or `$bot->getConversations()->enterLater($chatId, ...)` (next message) |
 | `$bot->getApplication()` before configuration | builds the application; configure first |
 
 Scenes work without `useStorage()` using in-memory storage. Configure persistent storage for
@@ -29,7 +30,10 @@ spec has one.
 ## Callbacks
 
 - Payloads are signed. Callback data produced by 1.x buttons (`{"id":...,"payload":...}`) is
-  rejected; old `cf:<token>` data is decoded as long as the token is still stored.
+  rejected and the query is answered silently; 1.x `cf:<token>` data no longer resolves because
+  tokens are now derived from the payload.
+- Every callback query is answered after handling, so handlers may skip `ack()` when they have
+  nothing to say.
 - `TelegramCallbackPayloadEncoder` requires a secret: `new TelegramCallbackPayloadEncoder($store, $secret)`.
 - `decode()` returns `DecodedCallback` instead of a two-element array.
 - In tests, `TelegramBotTester::clickButton()` signs payloads automatically; raw JSON via

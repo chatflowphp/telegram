@@ -55,6 +55,10 @@ $ctx->ack('Validation failed', true);   // alert
 For callback queries `ack()` calls `answerCallbackQuery()`. Without a callback query and with
 text, it sends a message.
 
+Every callback query gets answered: when no handler called `ack()`, the adapter answers it
+silently after the update was handled, so the button never keeps spinning. When a handler
+fails, the default error handler answers with an alert.
+
 ## URL Buttons
 
 ```php

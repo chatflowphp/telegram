@@ -88,6 +88,15 @@ $ctx->canEnter(NextScene::class);
 `leave()` ends the flow and clears history. Everything happens inside the current update; if a
 hook throws, the chat stays where it was and nothing is sent except the error handler's message.
 
+## Entering From A Scheduler Or Another Chat
+
+```php
+$bot->enterScene($chatId, ReviewScene::class, ['campaign' => 42]);     // send the question now
+$bot->getConversations()->enterLater($chatId, ReviewScene::class);     // start on the next message
+```
+
+See [Bot Lifecycle](bot-lifecycle.md) and the core `docs/scenes.md`.
+
 ## Media Inside Scenes
 
 Attachments sent while a scene is active go to the scene: an `onMedia()` shortcut of the pending

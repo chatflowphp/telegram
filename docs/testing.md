@@ -45,6 +45,8 @@ $tester->assertEndpointCalled('sendMessage');
 $tester->assertEndpointNotCalled('deleteMessage');
 $tester->assertScene(CheckoutScene::class);             // class or scene id
 $tester->assertNotInScene();
+$tester->assertScenePending(CheckoutScene::class);      // scheduled with enterLater()
+$tester->assertNoScenePending();
 $tester->assertSessionHas('key', 'value');
 $tester->assertSessionMissing('key');
 $tester->assertResult('success', 'scene_processed');

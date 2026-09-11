@@ -17,15 +17,16 @@ new TelegramMediaGroupCollector(
 When a message or an edited message has `media_group_id`:
 
 1. The part is stored under `chat_id:media_group_id`.
-2. The collector waits for the window (the webhook request blocks for that long).
-3. Only the part with the highest message id emits the aggregated update; earlier parts return
-   `Result::noMatch('telegram_media_group_pending')`.
-4. The aggregated event carries every attachment ordered by message id, with the chat and sender
-   of the leading message.
-5. The group is deleted from the store.
+2. The first request to see the album claims it and waits for the window; every other part
+   returns `Result::noMatch('telegram_media_group_pending')` immediately, so at most one webhook
+   worker per album is blocked.
+3. The leader emits one update carrying every part collected so far, ordered by message id, with
+   the chat and sender of the first message.
+4. The group is deleted from the store.
 
 Parts that arrive after the window closed start a new group. Polling groups parts that arrive
-in the same `getUpdates()` batch without waiting.
+in the same `getUpdates()` batch without waiting. Custom stores implement `claim()` atomically
+(the file store creates a marker with the exclusive `x` mode).
 
 ## Handling Albums
 

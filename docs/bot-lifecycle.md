@@ -70,6 +70,23 @@ $bot->startPolling(timeout: 30, allowedUpdates: ['message', 'callback_query', 'm
 Polling deletes the webhook first, groups album parts that arrive in the same batch and handles
 `SIGINT` / `SIGTERM` when `pcntl` is available.
 
+## Acting From Outside A Request
+
+Schedulers, admin panels and other chats move conversations without a Telegram update:
+
+```php
+$bot->enterScene($chatId, ReviewScene::class, ['campaign' => 42]);   // asks now
+$bot->leaveScene($chatId);
+$bot->run($chatId, static function (Context $ctx): void {          // any handler, as a system tick
+    $ctx->reply('Your report is ready');
+});
+$bot->getConversations()->enterLater($chatId, ReviewScene::class);   // starts on the next message
+```
+
+Immediate calls run a system tick through the regular runtime and send the scene's messages to
+the chat. `enterLater()` records the intent; the scene is entered, with its `onEnter()` output,
+when the chat's next update arrives, and that update is consumed unless `handleTrigger: true`.
+
 ## Runtime Access
 
 ```php

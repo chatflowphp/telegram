@@ -13,9 +13,14 @@ issues found in the 1.x audit. No backward compatibility with 1.x; see `docs/upg
 
 ### Added
 
-- Signed callback payloads (`cs:<signature>:<json>`); forged or unsigned payloads are rejected
-  before any handler runs. `Bot` derives the key from the token; pass `callbackSecret` to
-  override.
+- Signed callback payloads (`cs:<signature>:["id",payload]`); forged or unsigned payloads are
+  rejected before any handler runs and the query is answered silently. `Bot` derives the key
+  from the token; pass `callbackSecret` to override. Stored payloads use content-addressed
+  tokens, so re-rendering a button reuses its record.
+- Every callback query is answered: the adapter implements `AfterHandleInterface` and answers
+  queries no handler acknowledged.
+- `Bot::run()`, `enterScene()`, `leaveScene()` and `TelegramBotTester::assertScenePending()` /
+  `assertNoScenePending()` for acting on chats from schedulers and admin tools.
 - `DecodedCallback` with accepted / expired / rejected statuses; expired stored payloads produce
   an event without an action (`callback_status` in the message ref).
 - `Bot::verifyWebhookSecret()` (constant-time) and `runWebhook(?string $secretToken)`.
@@ -40,7 +45,10 @@ issues found in the 1.x audit. No backward compatibility with 1.x; see `docs/upg
   `Result::noMatch('unsupported_update')` instead of creating conversation `0`.
 - `render()` treats "message is not modified" as success and no longer deletes and resends the
   message.
-- Edited messages that belong to an album keep their chat and sender.
+- Edited messages that belong to an album keep their chat and sender. Album collection elects one
+  leader per album (`TelegramMediaGroupStoreInterface::claim()`), so only one webhook worker
+  waits for the collection window.
+- `TelegramCallbackStoreInterface::put()` takes the token chosen by the encoder.
 - The file-backed callback and media group stores create their directories lazily and clean up
   with a small probability on write (2% and 5%) instead of scanning on every construction.
 - `Bot` builds the core `Application` on the first handled update; `useStorage()` after that
