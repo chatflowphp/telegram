@@ -100,6 +100,12 @@ class Bot implements FlowRuntimeInterface
      *
      * @throws TelegramSDKException
      */
+    /**
+     * Telegram update types `onTelegramEvent()` dispatches. They carry a chat, so they run as a
+     * conversation event with middleware, session and rollback.
+     */
+    public const TELEGRAM_EVENT_TYPES = ['my_chat_member', 'chat_member'];
+
     public function __construct(
         private readonly string $token,
         private readonly string $basePath,
@@ -183,9 +189,19 @@ class Bot implements FlowRuntimeInterface
      * Handles a Telegram update type that is not a message or a callback (`my_chat_member`,
      * `chat_member`). The handler runs as a global route with middleware and session access and
      * receives the raw update as `array $update`.
+     *
+     * @throws LogicException When the update type is not one the runtime dispatches
      */
     public function onTelegramEvent(string $updateType, callable $handler): static
     {
+        if (!\in_array($updateType, self::TELEGRAM_EVENT_TYPES, true)) {
+            throw new LogicException(\sprintf(
+                'Unsupported Telegram event type "%s". onTelegramEvent() dispatches %s; updates without a chat are not handled by the conversation runtime.',
+                $updateType,
+                implode(' and ', self::TELEGRAM_EVENT_TYPES),
+            ));
+        }
+
         $this->telegramEventHandlers[$updateType] = $handler;
 
         return $this;
@@ -631,7 +647,7 @@ class Bot implements FlowRuntimeInterface
      */
     private function detectTelegramUpdateType(array $update): ?string
     {
-        foreach (['my_chat_member', 'chat_member'] as $type) {
+        foreach (self::TELEGRAM_EVENT_TYPES as $type) {
             if (isset($update[$type])) {
                 return $type;
             }
