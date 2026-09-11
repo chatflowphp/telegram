@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace ChatFlow\Telegram;
 
 use ChatFlow\Container\ContainerInterface;
+use ChatFlow\Contracts\AfterHandleInterface;
 use ChatFlow\Contracts\InboundEventInterface;
 use ChatFlow\Contracts\PlatformAdapterInterface;
 use ChatFlow\Contracts\RuntimeDependencyBinderInterface;
 use ChatFlow\Core\Context;
+use ChatFlow\Core\Result;
 use ChatFlow\Event\ConversationRef;
 use ChatFlow\Event\InboundAttachment;
 use ChatFlow\Event\InboundEvent;
@@ -39,8 +41,10 @@ use Throwable;
  * Converts Telegram updates into core inbound events and delivers core effects through the
  * Bot API.
  */
-final class TelegramPlatformAdapter implements PlatformAdapterInterface, RuntimeDependencyBinderInterface
+final class TelegramPlatformAdapter implements PlatformAdapterInterface, RuntimeDependencyBinderInterface, AfterHandleInterface
 {
+    private const ACKED_FLAG = 'telegram.callback_acked';
+
     private const MEDIA_TYPES = ['document', 'video', 'audio', 'voice', 'animation', 'sticker', 'video_note'];
     private const EDITABLE_MEDIA_TYPES = ['photo', 'document', 'video', 'audio', 'animation'];
 
@@ -171,6 +175,35 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
         }
 
         return DeliveryResult::error('Unsupported Telegram outbound effect.');
+    }
+
+    /**
+     * Every callback query must be answered or the client keeps its spinner for up to a minute.
+     * Answers the query silently when no handler acknowledged it, including after failures.
+     */
+    public function afterHandle(Context $context, Result $result): void
+    {
+        if (!$context->isAction() || $context->get(self::ACKED_FLAG) === true) {
+            return;
+        }
+
+        $callbackQueryId = $context->getMessageRef()?->getReplyToken();
+
+        if ($callbackQueryId === null || $callbackQueryId === '') {
+            return;
+        }
+
+        $context->set(self::ACKED_FLAG, true);
+
+        try {
+            $this->api->answerCallbackQuery(['callback_query_id' => $callbackQueryId]);
+        } catch (Throwable $exception) {
+            $this->logger->notice('Telegram callback auto-acknowledgement failed.', [
+                'exception' => $exception::class,
+                'message' => $exception->getMessage(),
+                'conversation_id' => $context->getConversationId(),
+            ]);
+        }
     }
 
     public function downloadAttachment(Context $context, string $destinationDir): ?string
@@ -419,6 +452,8 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
         $callbackQueryId = $context->getMessageRef()?->getReplyToken();
 
         if ($context->isAction() && $callbackQueryId !== null && $callbackQueryId !== '') {
+            $context->set(self::ACKED_FLAG, true);
+
             try {
                 $this->api->answerCallbackQuery([
                     'callback_query_id' => $callbackQueryId,

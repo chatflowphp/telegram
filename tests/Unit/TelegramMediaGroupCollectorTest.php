@@ -4,25 +4,27 @@ declare(strict_types=1);
 
 namespace ChatFlow\Telegram\Tests\Unit;
 
+use ChatFlow\Telegram\MediaGroup\FileTelegramMediaGroupStore;
 use ChatFlow\Telegram\MediaGroup\InMemoryTelegramMediaGroupStore;
 use ChatFlow\Telegram\MediaGroup\TelegramMediaGroupCollector;
+use ChatFlow\Telegram\MediaGroup\TelegramMediaGroupStoreInterface;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class TelegramMediaGroupCollectorTest extends TestCase
 {
     #[DataProvider('messageKeys')]
-    public function testOnlyTheLatestPartEmitsTheAggregatedUpdate(string $key): void
+    public function testTheFirstPartClaimsTheAlbumAndEmitsEverythingCollected(string $key): void
     {
         $store = new InMemoryTelegramMediaGroupStore();
         $collector = new TelegramMediaGroupCollector($store, 0);
         $first = $this->update($key, 1, 'photo_a');
         $second = $this->update($key, 2, 'photo_b');
 
+        // The second part arrived (and was stored) while the first request was still running.
         $store->storePart('123:album-1', 2, $second);
 
-        self::assertNull($collector->collect($first));
-        $aggregated = $collector->collect($second);
+        $aggregated = $collector->collect($first);
 
         self::assertIsArray($aggregated);
         self::assertArrayNotHasKey($key === 'message' ? 'edited_message' : 'message', $aggregated);
@@ -33,9 +35,9 @@ final class TelegramMediaGroupCollectorTest extends TestCase
         self::assertSame(123, $chat['id'] ?? null, 'the aggregated update keeps the chat');
         $messages = $message[TelegramMediaGroupCollector::AGGREGATE_KEY] ?? null;
         self::assertIsArray($messages);
-        self::assertCount(2, $messages);
         self::assertSame([1, 2], array_map(static fn(mixed $part): mixed => \is_array($part) ? ($part['message_id'] ?? null) : null, $messages));
         self::assertSame([], $store->getParts('123:album-1'));
+        self::assertTrue($store->claim('123:album-1'), 'the album can be collected again once it was emitted');
     }
 
     /**
@@ -45,6 +47,37 @@ final class TelegramMediaGroupCollectorTest extends TestCase
     {
         yield 'message' => ['message'];
         yield 'edited_message' => ['edited_message'];
+    }
+
+    /**
+     * @param callable(): TelegramMediaGroupStoreInterface $factory
+     */
+    #[DataProvider('stores')]
+    public function testPartsSeenWhileAnotherRequestCollectsTheAlbumArePending(callable $factory): void
+    {
+        $store = $factory();
+        $collector = new TelegramMediaGroupCollector($store, 0);
+
+        self::assertTrue($store->claim('123:album-1'));
+        self::assertFalse($store->claim('123:album-1'));
+        self::assertNull($collector->collect($this->update('message', 2, 'photo_b')));
+        self::assertCount(1, $store->getParts('123:album-1'), 'the pending part is stored for the leader');
+
+        $store->deleteGroup('123:album-1');
+        self::assertSame([], $store->getParts('123:album-1'));
+        self::assertTrue($store->claim('123:album-1'));
+    }
+
+    /**
+     * @return iterable<string, array{callable(): TelegramMediaGroupStoreInterface}>
+     */
+    public static function stores(): iterable
+    {
+        yield 'memory' => [static fn(): TelegramMediaGroupStoreInterface => new InMemoryTelegramMediaGroupStore()];
+        yield 'file' => [static fn(): TelegramMediaGroupStoreInterface => new FileTelegramMediaGroupStore(
+            sys_get_temp_dir() . '/chatflow-media-groups-' . bin2hex(random_bytes(4)),
+            cleanupProbability: 0,
+        )];
     }
 
     public function testUpdatesWithoutMediaGroupPassThrough(): void

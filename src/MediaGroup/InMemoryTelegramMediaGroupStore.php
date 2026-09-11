@@ -9,6 +9,9 @@ final class InMemoryTelegramMediaGroupStore implements TelegramMediaGroupStoreIn
     /** @var array<string, array<int, array<string, mixed>>> */
     private array $groups = [];
 
+    /** @var array<string, true> */
+    private array $leaders = [];
+
     public function storePart(string $groupKey, int $messageId, array $update): void
     {
         $this->groups[$groupKey][$messageId] = $update;
@@ -29,8 +32,19 @@ final class InMemoryTelegramMediaGroupStore implements TelegramMediaGroupStoreIn
         return $parts;
     }
 
+    public function claim(string $groupKey): bool
+    {
+        if (isset($this->leaders[$groupKey])) {
+            return false;
+        }
+
+        $this->leaders[$groupKey] = true;
+
+        return true;
+    }
+
     public function deleteGroup(string $groupKey): void
     {
-        unset($this->groups[$groupKey]);
+        unset($this->groups[$groupKey], $this->leaders[$groupKey]);
     }
 }

@@ -192,6 +192,53 @@ final class TelegramParityLayerTest extends TestCase
         self::assertCount(1, $tracked);
     }
 
+    public function testEveryCallbackQueryIsAnsweredEvenWhenHandlersDoNot(): void
+    {
+        $this->bot->onAction('menu:open', static function (Context $ctx): void {
+            $ctx->render('Menu');
+        });
+        $this->bot->onAction('boom', static function (): void {
+            throw new \RuntimeException('handler failed');
+        });
+
+        $this->tester->clickButton('menu:open');
+        self::assertSame(['editMessageText', 'answerCallbackQuery'], array_column($this->client->getRequests(), 'endpoint'));
+
+        $this->tester->clear()->clickButton('boom')->assertResult('error');
+        $requests = $this->client->getRequests();
+        self::assertSame(['answerCallbackQuery'], array_column($requests, 'endpoint'));
+        self::assertTrue((bool) ($requests[0]['params']['show_alert'] ?? false), 'a failed button press is an alert');
+
+        $this->tester->clear()->clickCallbackData('{"id":"order:pay","payload":{"amount":0}}')->assertResult('no_match', 'unsupported_update');
+        self::assertSame(['answerCallbackQuery'], array_column($this->client->getRequests(), 'endpoint'), 'rejected callbacks are answered silently');
+    }
+
+    public function testScenesCanBeEnteredFromOutsideARequest(): void
+    {
+        $this->bot->registerScene(SurveyScene::class);
+        $this->bot->fallback(static function (Context $ctx): void {
+            $ctx->reply('fallback');
+        });
+
+        $this->bot->enterScene('123456789', SurveyScene::class);
+        self::assertSame(['sendMessage'], array_column($this->client->getRequests(), 'endpoint'));
+        $this->tester->assertSee('Как вас зовут?')->assertScene(SurveyScene::class);
+
+        $this->tester->clear()->sendMessage('Alex')->assertSessionHas('name', 'Alex')->assertSee('Сколько вам лет?');
+
+        $this->bot->leaveScene('123456789');
+        $this->tester->assertNotInScene();
+
+        $this->bot->getConversations()->enterLater('123456789', SurveyScene::class);
+        $this->tester->assertScenePending(SurveyScene::class);
+        $this->tester->clear()->sendMessage('hello again')->assertScene(SurveyScene::class)->assertSee('Как вас зовут?')->assertDontSee('fallback')->assertNoScenePending();
+
+        $this->bot->run('123456789', static function (Context $ctx): void {
+            $ctx->reply($ctx->isSystem() ? 'from the scheduler' : 'from a user');
+        });
+        $this->tester->assertSee('from the scheduler');
+    }
+
     public function testWebhookSecretIsComparedInConstantTime(): void
     {
         $bot = new Bot('TEST_TOKEN', \dirname(__DIR__, 2), webhookSecret: 'top-secret', api: new Api('TEST_TOKEN', false, $this->client));

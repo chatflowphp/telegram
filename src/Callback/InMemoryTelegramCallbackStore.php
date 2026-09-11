@@ -6,18 +6,14 @@ namespace ChatFlow\Telegram\Callback;
 
 final class InMemoryTelegramCallbackStore implements TelegramCallbackStoreInterface
 {
-    /** @var array<string, array{id: string, payload: mixed}> */
+    /**
+     * @var array<string, array{id: string, payload: mixed}>
+     */
     private array $items = [];
 
-    public function put(array $payload): string
+    public function put(string $token, array $payload): void
     {
-        do {
-            $token = bin2hex(random_bytes(8));
-        } while (isset($this->items[$token]));
-
         $this->items[$token] = $payload;
-
-        return $token;
     }
 
     public function get(string $token): ?array
@@ -28,5 +24,10 @@ final class InMemoryTelegramCallbackStore implements TelegramCallbackStoreInterf
     public function delete(string $token): void
     {
         unset($this->items[$token]);
+    }
+
+    public function count(): int
+    {
+        return \count($this->items);
     }
 }

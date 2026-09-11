@@ -290,6 +290,27 @@ final class TelegramBotTester
         return $this;
     }
 
+    /**
+     * @param string $scene Scene class or scene id.
+     */
+    public function assertScenePending(string $scene): self
+    {
+        $pending = $this->bot->getConversations()->getPending($this->chatId);
+
+        Assert::assertNotNull($pending, 'No scene transition is pending.');
+        Assert::assertSame('enter', $pending['action']);
+        Assert::assertSame($this->bot->getScenes()->resolveId($scene), $pending['scene']);
+
+        return $this;
+    }
+
+    public function assertNoScenePending(): self
+    {
+        Assert::assertNull($this->bot->getConversations()->getPending($this->chatId));
+
+        return $this;
+    }
+
     public function assertSessionHas(string $key, mixed $expectedValue = null): self
     {
         $session = $this->conversation()->getContext();

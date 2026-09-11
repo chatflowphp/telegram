@@ -6,6 +6,7 @@ namespace ChatFlow\Telegram\Tests\Unit;
 
 use ChatFlow\Container\Container;
 use ChatFlow\Core\Context;
+use ChatFlow\Core\Result;
 use ChatFlow\Event\ConversationRef;
 use ChatFlow\Event\InboundAttachment;
 use ChatFlow\Event\InboundEvent;
@@ -365,7 +366,8 @@ final class TelegramPlatformAdapterTest extends TestCase
         $store = new FileTelegramCallbackStore($directory, ttlSeconds: 60, cleanupProbability: 0);
 
         try {
-            $token = $store->put(['id' => 'admin:approve', 'payload' => ['post' => 10]]);
+            $token = str_repeat('a', 16);
+            $store->put($token, ['id' => 'admin:approve', 'payload' => ['post' => 10]]);
             self::assertSame(['id' => 'admin:approve', 'payload' => ['post' => 10]], $store->get($token));
 
             $path = $directory . '/' . $token . '.json';
@@ -376,13 +378,19 @@ final class TelegramPlatformAdapterTest extends TestCase
             self::assertNull($another->get($token), 'reading an expired payload removes it');
             self::assertFileDoesNotExist($path);
 
-            $stale = $store->put(['id' => 'admin:reject', 'payload' => ['post' => 11]]);
-            $fresh = $store->put(['id' => 'admin:hold', 'payload' => ['post' => 12]]);
+            $stale = str_repeat('b', 16);
+            $fresh = str_repeat('c', 16);
+            $store->put($stale, ['id' => 'admin:reject', 'payload' => ['post' => 11]]);
+            $store->put($fresh, ['id' => 'admin:hold', 'payload' => ['post' => 12]]);
             touch($directory . '/' . $stale . '.json', time() - 120);
             $store->cleanupExpired();
 
             self::assertFileDoesNotExist($directory . '/' . $stale . '.json');
             self::assertSame(['id' => 'admin:hold', 'payload' => ['post' => 12]], $store->get($fresh));
+
+            file_put_contents($directory . '/' . $fresh . '.json', json_encode(['created_at' => time() - 120, 'payload' => ['id' => 'admin:hold', 'payload' => ['post' => 12]]], JSON_THROW_ON_ERROR));
+            $store->put($fresh, ['id' => 'admin:hold', 'payload' => ['post' => 12]]);
+            self::assertSame(['id' => 'admin:hold', 'payload' => ['post' => 12]], $store->get($fresh), 'rendering the button again restarts its TTL');
         } finally {
             $this->removeDirectory($directory);
         }
@@ -457,6 +465,33 @@ final class TelegramPlatformAdapterTest extends TestCase
 
         self::assertTrue($delivery->isError());
         self::assertSame('telegram_delivery_failed', $delivery->getMessage());
+    }
+
+    public function testUnansweredCallbackQueriesAreAcknowledgedAfterHandling(): void
+    {
+        $client = new MockHttpClient();
+        $adapter = $this->createAdapter($client);
+        $context = $this->actionContext($adapter);
+
+        $adapter->afterHandle($context, Result::noMatch());
+        $adapter->afterHandle($context, Result::noMatch());
+
+        self::assertSame(['answerCallbackQuery'], array_column($client->getRequests(), 'endpoint'), 'answered exactly once');
+        self::assertArrayNotHasKey('text', $client->getRequests()[0]['params']);
+
+        $acked = new MockHttpClient();
+        $adapter = $this->createAdapter($acked);
+        $context = $this->actionContext($adapter);
+        $adapter->deliver($context, new AckEffect('Saved'));
+        $adapter->afterHandle($context, Result::success());
+
+        self::assertSame(['answerCallbackQuery'], array_column($acked->getRequests(), 'endpoint'), 'an explicit ack is not repeated');
+
+        $plain = new MockHttpClient();
+        $adapter = $this->createAdapter($plain);
+        $adapter->afterHandle(new Context(new InboundEvent(conversation: new ConversationRef('123')), $adapter, new Container()), Result::success());
+
+        self::assertSame([], $plain->getRequests(), 'text messages have nothing to acknowledge');
     }
 
     public function testUnchangedScreensAreNotDeletedAndResent(): void

@@ -446,6 +446,32 @@ class Bot implements FlowRuntimeInterface
         return $this->api->setWebhook(array_merge($defaults, $params));
     }
 
+    // -- acting on conversations from outside a request ----------------------------------------
+
+    /**
+     * Runs a handler inside a chat's conversation without a Telegram update, for schedulers and
+     * admin tools. See Application::run().
+     */
+    public function run(string|int $chatId, callable $handler, string $reason = 'system'): Result
+    {
+        return $this->application()->run((string) $chatId, $handler, $reason);
+    }
+
+    /**
+     * Enters a scene in a chat now; the scene's onEnter() messages are sent to the chat.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function enterScene(string|int $chatId, string $scene, array $data = [], ?string $title = null): Result
+    {
+        return $this->application()->enter((string) $chatId, $scene, $data, $title);
+    }
+
+    public function leaveScene(string|int $chatId): Result
+    {
+        return $this->application()->leave((string) $chatId);
+    }
+
     // -- accessors -----------------------------------------------------------------------------
 
     public function getApi(): Api
@@ -533,8 +559,31 @@ class Bot implements FlowRuntimeInterface
             return $this->adapter->createInboundEvent($raw);
         } catch (UnsupportedInputException $exception) {
             $this->logger->info('Telegram update skipped', ['reason' => $exception->getMessage()]);
+            $this->answerSkippedCallback($raw);
 
             return null;
+        }
+    }
+
+    /**
+     * A skipped callback query (forged or malformed data) is still answered so the client does
+     * not keep waiting.
+     *
+     * @param array<string, mixed> $raw
+     */
+    private function answerSkippedCallback(array $raw): void
+    {
+        $callbackQuery = $raw['callback_query'] ?? null;
+        $callbackQueryId = \is_array($callbackQuery) ? ($callbackQuery['id'] ?? null) : null;
+
+        if (!\is_string($callbackQueryId) || $callbackQueryId === '') {
+            return;
+        }
+
+        try {
+            $this->api->answerCallbackQuery(['callback_query_id' => $callbackQueryId]);
+        } catch (Throwable) {
+            // Best effort only.
         }
     }
 

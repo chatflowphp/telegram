@@ -82,6 +82,27 @@ final class FileTelegramMediaGroupStore implements TelegramMediaGroupStoreInterf
         return $parts;
     }
 
+    public function claim(string $groupKey): bool
+    {
+        $dir = $this->groupDirectory($groupKey);
+
+        if (!is_dir($dir) && !mkdir($dir, 0o755, true) && !is_dir($dir)) {
+            return false;
+        }
+
+        // Creating the marker with the exclusive "x" mode is atomic on POSIX filesystems: exactly
+        // one concurrent request succeeds.
+        $handle = @fopen($dir . '/.leader', 'x');
+
+        if ($handle === false) {
+            return false;
+        }
+
+        fclose($handle);
+
+        return true;
+    }
+
     public function deleteGroup(string $groupKey): void
     {
         $this->removeGroupDirectory($this->groupDirectory($groupKey));
@@ -125,7 +146,7 @@ final class FileTelegramMediaGroupStore implements TelegramMediaGroupStoreInterf
             return;
         }
 
-        $paths = glob($dir . '/*.json');
+        $paths = glob($dir . '/{*.json,.leader}', GLOB_BRACE);
 
         foreach ($paths === false ? [] : $paths as $path) {
             @unlink($path);

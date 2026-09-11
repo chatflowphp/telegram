@@ -9,9 +9,10 @@ use InvalidArgumentException;
 /**
  * Aggregates the separate updates Telegram sends for one album into a single update.
  *
- * Each part is stored, the collector waits for the configured window, and only the part with the
- * highest message id emits the aggregated update (under `__chatflow_media_group_messages` inside
- * the message). Earlier parts return null and must be ignored by the caller.
+ * Each part is stored. The first request to see the album claims it, waits for the configured
+ * window and emits one update carrying every part collected so far (under
+ * `__chatflow_media_group_messages` inside the message). Every other request returns null
+ * immediately, so at most one worker per album is blocked.
  */
 final class TelegramMediaGroupCollector
 {
@@ -58,21 +59,15 @@ final class TelegramMediaGroupCollector
 
         $this->store->storePart($groupKey, $messageId, $update);
 
+        if (!$this->store->claim($groupKey)) {
+            return null;
+        }
+
         if ($this->waitWindowMs > 0) {
             usleep($this->waitWindowMs * 1000);
         }
 
         $parts = $this->store->getParts($groupKey);
-        $latestMessageId = $messageId;
-
-        foreach ($parts as $part) {
-            $latestMessageId = max($latestMessageId, $part['message_id']);
-        }
-
-        if ($messageId !== $latestMessageId) {
-            return null;
-        }
-
         $messages = [];
 
         foreach ($parts as $part) {

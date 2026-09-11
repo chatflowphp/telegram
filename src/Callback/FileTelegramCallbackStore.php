@@ -9,8 +9,9 @@ use JsonException;
 use RuntimeException;
 
 /**
- * Stores callback payloads as JSON files named by token. Expired files are removed
- * opportunistically on put() with the configured probability, never on construction.
+ * Stores callback payloads as JSON files named by token. Storing a token again rewrites the file
+ * and restarts its TTL, so a button that is still being rendered never expires. Expired files are
+ * removed opportunistically on put() with the configured probability, never on construction.
  */
 final class FileTelegramCallbackStore implements TelegramCallbackStoreInterface
 {
@@ -20,16 +21,13 @@ final class FileTelegramCallbackStore implements TelegramCallbackStoreInterface
         private readonly int $cleanupProbability = 2,
     ) {}
 
-    public function put(array $payload): string
+    public function put(string $token, array $payload): void
     {
         SerializableValueValidator::assertSerializable($payload, 'telegram callback payload');
         $this->ensureDirectory();
         $this->maybeCleanupExpired();
 
-        do {
-            $token = bin2hex(random_bytes(8));
-            $path = $this->path($token);
-        } while (is_file($path));
+        $path = $this->path($token);
 
         try {
             $encoded = json_encode(['created_at' => time(), 'payload' => $payload], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE);
@@ -40,8 +38,6 @@ final class FileTelegramCallbackStore implements TelegramCallbackStoreInterface
         if (file_put_contents($path, $encoded, LOCK_EX) === false) {
             throw new RuntimeException(\sprintf('Failed to write Telegram callback payload "%s".', $path));
         }
-
-        return $token;
     }
 
     public function get(string $token): ?array
