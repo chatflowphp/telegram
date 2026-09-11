@@ -17,6 +17,9 @@ use ChatFlow\Exception\ExceptionRegistry;
 use ChatFlow\Exception\LogicException;
 use ChatFlow\Exception\UnsupportedInputException;
 use ChatFlow\Exception\ValidationException;
+use ChatFlow\I18n\ChainLocaleResolver;
+use ChatFlow\I18n\LocaleResolverInterface;
+use ChatFlow\I18n\SessionLocaleResolver;
 use ChatFlow\Observability\RuntimeObserverInterface;
 use ChatFlow\Routing\Route;
 use ChatFlow\Routing\Router;
@@ -27,6 +30,7 @@ use ChatFlow\Storage\Drivers\MemoryStorage;
 use ChatFlow\Storage\StorageInterface;
 use ChatFlow\Telegram\Callback\FileTelegramCallbackStore;
 use ChatFlow\Telegram\Callback\TelegramCallbackPayloadEncoder;
+use ChatFlow\Telegram\I18n\TelegramLocaleResolver;
 use ChatFlow\Telegram\MediaGroup\FileTelegramMediaGroupStore;
 use ChatFlow\Telegram\MediaGroup\TelegramMediaGroupCollector;
 use ChatFlow\Telegram\UI\TelegramScreenManager;
@@ -180,6 +184,10 @@ class Bot implements FlowRuntimeInterface
         $this->container->set(TelegramMediaGroupCollector::class, $this->mediaGroupCollector);
         $this->container->set(TelegramPlatformAdapter::class, $this->adapter);
         $this->container->set(TelegramScreenManager::class, $screenManager);
+        $this->container->set(LocaleResolverInterface::class, new ChainLocaleResolver(
+            new SessionLocaleResolver(),
+            new TelegramLocaleResolver(),
+        ));
         $this->container->set(self::class, $this);
     }
 
