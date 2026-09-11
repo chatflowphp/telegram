@@ -11,22 +11,22 @@ final class PhoneScene extends BaseScene
 {
     public function handle(Context $ctx): void
     {
-        $ctx->ask("Profile phone\n\nSend your phone in +79991234567 format, or /cancel.")
-            ->validate('regex:/^\+7\d{10}$/', 'Use +79991234567.')
-            ->onText('cancel', 'onCancel')
+        $ctx->ask($ctx->t('phone.ask'))
+            ->validate('regex:/^\+7\d{10}$/', $ctx->t('phone.invalid'))
+            ->onText(['cancel', 'отмена'], 'onCancel')
             ->handle('savePhone');
     }
 
     public function savePhone(Context $ctx): void
     {
         $ctx->session()->set('profile.phone', $ctx->getText());
-        $ctx->reply(StarterBotFlow::settingsView($ctx, 'Phone saved.'));
+        $ctx->reply(StarterBotFlow::settingsView($ctx, 'phone.saved'));
         $ctx->leave();
     }
 
     public function onCancel(Context $ctx): void
     {
-        $ctx->reply(StarterBotFlow::settingsView($ctx, 'Phone unchanged.'));
+        $ctx->reply(StarterBotFlow::settingsView($ctx, 'phone.unchanged'));
         $ctx->leave();
     }
 

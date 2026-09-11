@@ -149,4 +149,112 @@ final class MiniShopFlowTest extends TestCase
         self::assertTrue((bool) ($lastRequest['params']['show_alert'] ?? false));
         $this->tester->assertScene(ShopScene::class);
     }
+
+    public function testAConfirmedOrderIsPaidWithTelegramStars(): void
+    {
+        $this->tester
+            ->sendCommand('/start')
+            ->clear()
+            ->clickButton('landing:shop')
+            ->clear()
+            ->clickSceneAction([ShopScene::class, 'onAddToCart'], ['id' => 1])
+            ->clear()
+            ->clickSceneAction([ShopScene::class, 'onCheckout'])
+            ->clear()
+            ->sendMessage('+79991234567')
+            ->assertSee('Order #1000 is confirmed.')
+            ->assertKeyboardHas('Pay 84 Stars')
+            ->clear()
+            ->clickButton('order:pay', ['id' => 1000])
+            ->assertEndpointCalled('sendInvoice');
+
+        // sendInvoice is an immediate Bot API call, so it is recorded before the queued ack().
+        $invoices = array_values(array_filter(
+            $this->tester->getRequests(),
+            static fn(array $request): bool => $request['endpoint'] === 'sendInvoice',
+        ));
+
+        self::assertCount(1, $invoices);
+        self::assertSame('order-1000', $invoices[0]['params']['payload'] ?? null);
+        self::assertSame('XTR', $invoices[0]['params']['currency'] ?? null);
+
+        $this->tester
+            ->clear()
+            ->sendRawUpdate(self::preCheckoutUpdate('order-1000'))
+            ->assertEndpointCalled('answerPreCheckoutQuery');
+
+        self::assertTrue((bool) ($this->tester->getRequests()[0]['params']['ok'] ?? false));
+
+        $this->tester
+            ->clear()
+            ->sendRawUpdate(self::successfulPaymentUpdate('order-1000'))
+            ->assertSee('Payment received for order #1000. Thank you!');
+
+        $orders = $this->orderService->getOrders();
+
+        self::assertTrue($orders[0]['paid']);
+        self::assertSame('charge-1', $orders[0]['charge_id']);
+    }
+
+    public function testPayingAnOrderTwiceIsRefusedAtTheCheckoutQuery(): void
+    {
+        $this->tester
+            ->sendCommand('/start')
+            ->clear()
+            ->clickButton('landing:shop')
+            ->clear()
+            ->clickSceneAction([ShopScene::class, 'onAddToCart'], ['id' => 1])
+            ->clear()
+            ->clickSceneAction([ShopScene::class, 'onCheckout'])
+            ->clear()
+            ->sendMessage('+79991234567')
+            ->clear()
+            ->sendRawUpdate(self::successfulPaymentUpdate('order-1000'))
+            ->clear()
+            ->sendRawUpdate(self::preCheckoutUpdate('order-1000'));
+
+        $answer = $this->tester->getRequests()[0]['params'] ?? [];
+
+        self::assertSame('answerPreCheckoutQuery', $this->tester->getRequests()[0]['endpoint']);
+        self::assertFalse((bool) ($answer['ok'] ?? true));
+        self::assertSame('This order can no longer be paid.', $answer['error_message'] ?? null);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function preCheckoutUpdate(string $payload): array
+    {
+        return [
+            'update_id' => 900,
+            'pre_checkout_query' => [
+                'id' => 'pcq-1',
+                'from' => ['id' => 123456789],
+                'currency' => 'XTR',
+                'total_amount' => 84,
+                'invoice_payload' => $payload,
+            ],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function successfulPaymentUpdate(string $payload): array
+    {
+        return [
+            'update_id' => 901,
+            'message' => [
+                'message_id' => 999,
+                'chat' => ['id' => 123456789, 'type' => 'private'],
+                'from' => ['id' => 123456789],
+                'successful_payment' => [
+                    'currency' => 'XTR',
+                    'total_amount' => 84,
+                    'invoice_payload' => $payload,
+                    'telegram_payment_charge_id' => 'charge-1',
+                ],
+            ],
+        ];
+    }
 }

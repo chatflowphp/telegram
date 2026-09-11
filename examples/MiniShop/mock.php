@@ -60,17 +60,45 @@ $tester
     ->clickSceneAction([ShopScene::class, 'onAddToCart'], ['id' => 1])
     ->clickSceneAction([ShopScene::class, 'onViewCart'])
     ->clickSceneAction([ShopScene::class, 'onCheckout'])
-    ->sendMessage('+79991234567');
+    ->sendMessage('+79991234567')
+    // Paying with Telegram Stars: the invoice, the pre-checkout query Telegram asks about before
+    // charging, and the payment itself, which arrives as a message in the chat.
+    ->clickButton('order:pay', ['id' => 1000])
+    ->sendRawUpdate([
+        'update_id' => 900,
+        'pre_checkout_query' => [
+            'id' => 'pcq-1',
+            'from' => ['id' => 1001],
+            'currency' => 'XTR',
+            'total_amount' => 84,
+            'invoice_payload' => 'order-1000',
+        ],
+    ])
+    ->sendRawUpdate([
+        'update_id' => 901,
+        'message' => [
+            'message_id' => 999,
+            'chat' => ['id' => 1001, 'type' => 'private'],
+            'from' => ['id' => 1001],
+            'successful_payment' => [
+                'currency' => 'XTR',
+                'total_amount' => 84,
+                'invoice_payload' => 'order-1000',
+                'telegram_payment_charge_id' => 'charge-1',
+            ],
+        ],
+    ]);
 
 echo "Mock scenario completed.\n\n";
 echo "Created orders:\n";
 
 foreach ($orderService->getOrders() as $order) {
     printf(
-        "- Order #%d, phone %s, total %s RUB\n",
+        "- Order #%d, phone %s, total %s RUB, %s\n",
         $order['id'],
         $order['phone'],
         number_format($order['total'], 0, '.', ' '),
+        $order['paid'] ? 'paid with Stars (' . (string) $order['charge_id'] . ')' : 'not paid',
     );
 }
 

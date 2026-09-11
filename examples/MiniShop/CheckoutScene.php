@@ -6,6 +6,7 @@ namespace ChatFlow\Telegram\Examples\MiniShop;
 
 use ChatFlow\Core\Context;
 use ChatFlow\Scene\BaseScene;
+use ChatFlow\View\Action;
 use ChatFlow\View\Choice;
 use ChatFlow\View\View;
 
@@ -73,15 +74,20 @@ final class CheckoutScene extends BaseScene
 
         $ctx->reply('Order placed.');
         $ctx->reply(
-            MiniShopFlow::landingView(
-                label: 'Back to storefront',
-                text: \sprintf(
+            View::text(
+                \sprintf(
                     "Order #%d is confirmed.\nTotal: %s RUB\nPhone: %s",
                     $orderId,
                     number_format($total, 0, '.', ' '),
                     $phone,
                 ),
-            ),
+            )
+                ->addActionRow(new Action(
+                    'order:pay',
+                    \sprintf('Pay %d Stars', OrderService::starsFor($total)),
+                    ['id' => $orderId],
+                ))
+                ->addActionRow(new Action('landing:shop', 'Back to storefront')),
         );
 
         $ctx->leave();

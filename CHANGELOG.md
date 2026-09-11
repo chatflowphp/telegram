@@ -19,6 +19,9 @@ All notable changes to this project are documented in this file. The format foll
   `docs/localization.md`.
 - `TelegramPlatformAdapter::chatIdFor()` resolves the chat a conversation belongs to, so delivery
   no longer assumes the conversation id is the chat id.
+- The bundled examples cover the new capabilities: StarterBot speaks Russian and English with a
+  language switch, and MiniShop pays a confirmed order with Telegram Stars end to end.
+- `MockHttpClient` returns a message for `sendInvoice`, so payment flows can be tested offline.
 
 ### Changed
 

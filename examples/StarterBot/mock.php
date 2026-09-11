@@ -51,7 +51,11 @@ $tester
     ->clickButton('settings:open')
     ->clickButton('profile:phone')
     ->sendMessage('123')
-    ->sendMessage('+79991234567');
+    ->sendMessage('+79991234567')
+    // The same flow in Russian: the choice is stored in the session and survives the next update.
+    ->clickButton('lang:ru')
+    ->sendCommand('/start')
+    ->clickButton('settings:open');
 
 echo "StarterBot mock scenario completed.\n\n";
 echo "Outgoing Telegram API requests:\n";

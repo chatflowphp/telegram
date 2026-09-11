@@ -28,7 +28,12 @@ final class MiniShopBotFactory
             storage: $storage ?? new FileStorage($basePath . '/storage/minishop'),
         );
 
-        (new MiniShopFlow($orderService))->register($bot);
+        $flow = new MiniShopFlow($orderService);
+        $flow->register($bot);
+
+        // Telegram-specific wiring: pre-checkout queries carry no chat, so they are not part of
+        // the platform-neutral flow contract.
+        $bot->onRawUpdate('pre_checkout_query', [$flow, 'approveCheckout']);
 
         return $bot;
     }

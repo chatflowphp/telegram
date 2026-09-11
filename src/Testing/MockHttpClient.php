@@ -191,7 +191,7 @@ final class MockHttpClient implements HttpClientInterface
         $messageMethods = [
             'sendMessage', 'sendPhoto', 'sendVideo', 'sendAudio', 'sendDocument', 'sendAnimation',
             'editMessageText', 'editMessageCaption', 'editMessageMedia', 'deleteMessage',
-            'answerCallbackQuery',
+            'answerCallbackQuery', 'sendInvoice',
         ];
 
         if ($endpoint === 'sendMediaGroup') {

@@ -100,4 +100,57 @@ final class StarterBotFlowTest extends TestCase
             ->assertNotInScene()
             ->assertSee('Phone unchanged.');
     }
+
+    public function testTheLanguageCanBeSwitchedAndIsRememberedAcrossUpdates(): void
+    {
+        $this->tester
+            ->sendCommand('/start')
+            ->assertSee('Starter Bot')
+            ->assertKeyboardHas('Русский')
+            ->clear()
+            ->clickButton('lang:ru')
+            ->assertSee('Стартовый бот')
+            ->assertKeyboardHas('English')
+            ->clear()
+            ->sendCommand('/start')
+            ->assertSee('Стартовый бот')
+            ->clear()
+            ->clickButton('settings:open')
+            ->assertSee('Настройки')
+            ->assertKeyboardHas('Изменить телефон');
+    }
+
+    public function testASceneSpeaksTheChosenLanguage(): void
+    {
+        $this->tester
+            ->clickButton('lang:ru')
+            ->clear()
+            ->clickButton('profile:phone')
+            ->assertScene(PhoneScene::class)
+            ->assertSee('Отправьте номер в формате +79991234567')
+            ->clear()
+            ->sendMessage('123')
+            ->assertScene(PhoneScene::class)
+            ->assertSee('Нужен формат +79991234567.')
+            ->clear()
+            ->sendMessage('+79991234567')
+            ->assertNotInScene()
+            ->assertSee('Телефон сохранён.')
+            ->assertSessionHas('profile.phone', '+79991234567');
+    }
+
+    public function testTheFirstMessageUsesTheLanguageTelegramReports(): void
+    {
+        $this->tester->sendRawUpdate([
+            'update_id' => 1,
+            'message' => [
+                'message_id' => 1,
+                'text' => '/start',
+                'chat' => ['id' => 123456789, 'type' => 'private'],
+                'from' => ['id' => 123456789, 'language_code' => 'ru'],
+            ],
+        ]);
+
+        $this->tester->assertSee('Стартовый бот');
+    }
 }
