@@ -11,6 +11,7 @@ use ChatFlow\Contracts\InboundEventInterface;
 use ChatFlow\Core\Application;
 use ChatFlow\Core\Context;
 use ChatFlow\Core\Result;
+use ChatFlow\Event\ConversationRef;
 use ChatFlow\Exception\ErrorHandlerInterface;
 use ChatFlow\Exception\ExceptionRegistry;
 use ChatFlow\Exception\LogicException;
@@ -136,6 +137,7 @@ class Bot implements FlowRuntimeInterface
         ?int $sessionTtlSeconds = null,
         bool $debug = false,
         ?string $callbackSecret = null,
+        private readonly ConversationScope $conversationScope = ConversationScope::Chat,
     ) {
         $this->container = $container ?? new Container();
         $this->logger = $logger ?? new NullLogger();
@@ -168,6 +170,7 @@ class Bot implements FlowRuntimeInterface
             $this->callbackEncoder,
             $screenManager,
             $this->logger,
+            $this->conversationScope,
         );
 
         $this->container->set(Api::class, $this->api);
@@ -509,9 +512,9 @@ class Bot implements FlowRuntimeInterface
      * Runs a handler inside a chat's conversation without a Telegram update, for schedulers and
      * admin tools. See Application::run().
      */
-    public function run(string|int $chatId, callable $handler, string $reason = 'system'): Result
+    public function run(string|int $chatId, callable $handler, string $reason = 'system', string|int|null $userId = null): Result
     {
-        return $this->application()->run((string) $chatId, $handler, $reason);
+        return $this->application()->run($this->conversationReference($chatId, $userId), $handler, $reason);
     }
 
     /**
@@ -519,14 +522,36 @@ class Bot implements FlowRuntimeInterface
      *
      * @param array<string, mixed> $data
      */
-    public function enterScene(string|int $chatId, string $scene, array $data = [], ?string $title = null): Result
+    public function enterScene(string|int $chatId, string $scene, array $data = [], ?string $title = null, string|int|null $userId = null): Result
     {
-        return $this->application()->enter((string) $chatId, $scene, $data, $title);
+        return $this->application()->enter($this->conversationReference($chatId, $userId), $scene, $data, $title);
     }
 
-    public function leaveScene(string|int $chatId): Result
+    public function leaveScene(string|int $chatId, string|int|null $userId = null): Result
     {
-        return $this->application()->leave((string) $chatId);
+        return $this->application()->leave($this->conversationReference($chatId, $userId));
+    }
+
+    /**
+     * The conversation a chat and user belong to under the configured scope. Pass the user id when
+     * the bot runs with ConversationScope::ChatAndUser and the chat is a group.
+     */
+    public function conversationIdFor(string|int $chatId, string|int|null $userId = null): string
+    {
+        return $this->conversationScope->conversationId($chatId, $userId);
+    }
+
+    /**
+     * The conversation of a chat, and optionally of one member in it, with the chat attached so
+     * that delivery targets the chat even when the conversation has an id of its own.
+     */
+    private function conversationReference(string|int $chatId, string|int|null $userId = null): ConversationRef
+    {
+        return new ConversationRef(
+            $this->conversationIdFor($chatId, $userId),
+            'telegram',
+            ['chat' => ['id' => $chatId]],
+        );
     }
 
     // -- accessors -----------------------------------------------------------------------------

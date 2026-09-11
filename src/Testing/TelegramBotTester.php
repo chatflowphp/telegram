@@ -179,9 +179,17 @@ final class TelegramBotTester
     /**
      * The current conversation of the active user, restored from storage.
      */
+    /**
+     * The conversation key of the current chat and user under the bot's scope.
+     */
+    private function conversationId(): string
+    {
+        return $this->bot->conversationIdFor($this->chatId, $this->userId);
+    }
+
     public function conversation(): Conversation
     {
-        return $this->bot->getConversations()->resume($this->chatId);
+        return $this->bot->getConversations()->resume($this->conversationId());
     }
 
     // -- assertions ----------------------------------------------------------------------------
@@ -295,7 +303,7 @@ final class TelegramBotTester
      */
     public function assertScenePending(string $scene): self
     {
-        $pending = $this->bot->getConversations()->getPending($this->chatId);
+        $pending = $this->bot->getConversations()->getPending($this->conversationId());
 
         Assert::assertNotNull($pending, 'No scene transition is pending.');
         Assert::assertSame('enter', $pending['action']);
@@ -306,7 +314,7 @@ final class TelegramBotTester
 
     public function assertNoScenePending(): self
     {
-        Assert::assertNull($this->bot->getConversations()->getPending($this->chatId));
+        Assert::assertNull($this->bot->getConversations()->getPending($this->conversationId()));
 
         return $this;
     }

@@ -56,8 +56,17 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
         private readonly TelegramCallbackPayloadEncoder $callbackEncoder,
         private readonly ?TelegramScreenManager $screenManager = null,
         ?LoggerInterface $logger = null,
+        private readonly ConversationScope $conversationScope = ConversationScope::Chat,
     ) {
         $this->logger = $logger ?? new NullLogger();
+    }
+
+    /**
+     * The conversation a chat and user belong to under the configured scope.
+     */
+    public function conversationIdFor(string|int $chatId, string|int|null $userId = null): string
+    {
+        return $this->conversationScope->conversationId($chatId, $userId);
     }
 
     public function bindRuntimeDependencies(ContainerInterface $container, Context $context): void
@@ -119,7 +128,11 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
         $callbackQueryId = $callbackQuery['id'] ?? null;
 
         return new InboundEvent(
-            conversation: new ConversationRef((string) $chatId, 'telegram', ['chat' => self::filterSerializable($chat)]),
+            conversation: new ConversationRef(
+                $this->conversationIdFor($chatId, \is_int($userId) || \is_string($userId) ? $userId : null),
+                'telegram',
+                ['chat' => self::filterSerializable($chat)],
+            ),
             user: \is_int($userId) || \is_string($userId) ? new UserRef($userId, 'telegram', ['user' => self::filterSerializable($from)]) : null,
             text: \is_string($text) ? $text : '',
             actionId: $actionId,
