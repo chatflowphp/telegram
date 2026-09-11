@@ -391,9 +391,22 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
         }
 
         return $this->api->sendMessage(array_merge([
-            'chat_id' => $context->getConversationId(),
+            'chat_id' => self::chatIdFor($context),
             'text' => $view->getText(),
         ], $replyMarkup, $optionsParams));
+    }
+
+    /**
+     * The Telegram chat a conversation belongs to. The conversation id is the chat id by default,
+     * but a conversation scoped to one member of a group has its own id and keeps the chat in the
+     * conversation meta; messages always go to the chat.
+     */
+    public static function chatIdFor(Context $context): string
+    {
+        $chat = $context->getConversation()->getMeta()['chat'] ?? null;
+        $chatId = \is_array($chat) ? $chat['id'] ?? null : null;
+
+        return \is_int($chatId) || \is_string($chatId) ? (string) $chatId : $context->getConversationId();
     }
 
     private function extractTelegramOptions(View $view): TelegramMessageOptions
@@ -486,7 +499,7 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
      */
     private function sendMedia(Context $context, MediaAttachment $media, string $text, array $extra): mixed
     {
-        $params = array_merge(['chat_id' => $context->getConversationId(), 'caption' => $text], $extra);
+        $params = array_merge(['chat_id' => self::chatIdFor($context), 'caption' => $text], $extra);
         $source = TelegramPublisher::normalizeMediaSource($media->getSource());
 
         return match (self::normalizeMediaType($media->getType())) {

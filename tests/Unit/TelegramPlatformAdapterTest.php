@@ -551,6 +551,43 @@ final class TelegramPlatformAdapterTest extends TestCase
         return $data;
     }
 
+    public function testDeliveryTargetsTheChatEvenWhenTheConversationHasItsOwnId(): void
+    {
+        $client = new MockHttpClient();
+        $adapter = $this->createAdapter($client);
+        $context = new Context(
+            new InboundEvent(
+                conversation: new ConversationRef('-100500:777', 'telegram', ['chat' => ['id' => -100500, 'type' => 'supergroup']]),
+                user: new UserRef(777, 'telegram'),
+                text: 'hello',
+            ),
+            $adapter,
+            new Container(),
+        );
+
+        self::assertSame('-100500', TelegramPlatformAdapter::chatIdFor($context));
+        self::assertTrue($adapter->deliver($context, new ReplyEffect(View::text('scoped reply')))->isSuccess());
+        self::assertTrue($adapter->deliver($context, new ReplyEffect(
+            View::text('scoped photo')->addMedia(new MediaAttachment('image', 'https://example.com/photo.jpg')),
+        ))->isSuccess());
+
+        self::assertSame(['sendMessage', 'sendPhoto'], array_column($client->getRequests(), 'endpoint'));
+        self::assertSame('-100500', $client->getRequests()[0]['params']['chat_id'] ?? null);
+        self::assertSame('-100500', $client->getRequests()[1]['params']['chat_id'] ?? null);
+    }
+
+    public function testTheConversationIdIsTheDeliveryTargetWhenTheChatIsUnknown(): void
+    {
+        $adapter = $this->createAdapter(new MockHttpClient());
+        $context = new Context(
+            new InboundEvent(conversation: new ConversationRef('123', 'telegram'), text: 'hello'),
+            $adapter,
+            new Container(),
+        );
+
+        self::assertSame('123', TelegramPlatformAdapter::chatIdFor($context));
+    }
+
     private function createAdapter(MockHttpClient $client): TelegramPlatformAdapter
     {
         $api = new Api('TEST_TOKEN', false, $client);

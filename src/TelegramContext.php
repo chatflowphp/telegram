@@ -47,7 +47,7 @@ final class TelegramContext
     {
         $chatId = $this->context->getMessageRef()?->get('chat_id');
 
-        return \is_int($chatId) || \is_string($chatId) ? $chatId : $this->context->getConversationId();
+        return \is_int($chatId) || \is_string($chatId) ? $chatId : TelegramPlatformAdapter::chatIdFor($this->context);
     }
 
     public function getMessageId(): ?int

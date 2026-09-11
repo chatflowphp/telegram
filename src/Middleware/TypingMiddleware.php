@@ -6,6 +6,7 @@ namespace ChatFlow\Telegram\Middleware;
 
 use ChatFlow\Core\Context;
 use ChatFlow\Middleware\MiddlewareInterface;
+use ChatFlow\Telegram\TelegramPlatformAdapter;
 use Telegram\Bot\Actions;
 use Telegram\Bot\Api;
 use Throwable;
@@ -20,7 +21,7 @@ final class TypingMiddleware implements MiddlewareInterface
     {
         try {
             $this->api->sendChatAction([
-                'chat_id' => $ctx->getConversationId(),
+                'chat_id' => TelegramPlatformAdapter::chatIdFor($ctx),
                 'action' => Actions::TYPING,
             ]);
         } catch (Throwable) {
