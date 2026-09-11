@@ -95,6 +95,11 @@ class Bot implements FlowRuntimeInterface
     private array $mediaHandlers = [];
 
     /**
+     * @var array<string, callable>
+     */
+    private array $rawUpdateHandlers = [];
+
+    /**
      * @param string $basePath Directory for default file stores (`storage/telegram-callbacks`, `storage/telegram-media-groups`).
      * @param string|null $callbackSecret Key used to sign inline callback payloads; derived from the token by default.
      *
@@ -105,6 +110,12 @@ class Bot implements FlowRuntimeInterface
      * conversation event with middleware, session and rollback.
      */
     public const TELEGRAM_EVENT_TYPES = ['my_chat_member', 'chat_member'];
+
+    /**
+     * Update types the conversation runtime owns. `onRawUpdate()` refuses them so a raw handler
+     * can never shadow routes, scenes or the session.
+     */
+    public const CONVERSATION_UPDATE_TYPES = ['message', 'edited_message', 'callback_query', 'my_chat_member', 'chat_member'];
 
     public function __construct(
         private readonly string $token,
@@ -196,13 +207,37 @@ class Bot implements FlowRuntimeInterface
     {
         if (!\in_array($updateType, self::TELEGRAM_EVENT_TYPES, true)) {
             throw new LogicException(\sprintf(
-                'Unsupported Telegram event type "%s". onTelegramEvent() dispatches %s; updates without a chat are not handled by the conversation runtime.',
+                'Unsupported Telegram event type "%s". onTelegramEvent() dispatches %s; handle any other update with onRawUpdate().',
                 $updateType,
                 implode(' and ', self::TELEGRAM_EVENT_TYPES),
             ));
         }
 
         $this->telegramEventHandlers[$updateType] = $handler;
+
+        return $this;
+    }
+
+    /**
+     * Handles an update the conversation runtime does not: updates without a chat
+     * (`pre_checkout_query`, `shipping_query`, `inline_query`, `poll`, ...) and channel posts.
+     *
+     * There is no chat to attach a conversation to, so the handler runs outside the runtime: no
+     * session, no scenes, no middleware and no rollback. Parameters are resolved through the
+     * container, which injects `Telegram\Bot\Api`, the raw `array $update` and the `string $type`.
+     *
+     * @throws LogicException When the update type belongs to the conversation runtime
+     */
+    public function onRawUpdate(string $updateType, callable $handler): static
+    {
+        if (\in_array($updateType, self::CONVERSATION_UPDATE_TYPES, true)) {
+            throw new LogicException(\sprintf(
+                'Update type "%s" is handled by the conversation runtime; use routes, scenes or onTelegramEvent() instead of onRawUpdate().',
+                $updateType,
+            ));
+        }
+
+        $this->rawUpdateHandlers[$updateType] = $handler;
 
         return $this;
     }
@@ -343,6 +378,12 @@ class Bot implements FlowRuntimeInterface
     public function handle(Update|array $update): Result
     {
         $raw = self::stringKeys($update instanceof Update ? $update->toArray() : $update);
+        $rawUpdateType = $this->detectRawUpdateType($raw);
+
+        if ($rawUpdateType !== null) {
+            return $this->dispatchRawUpdate($rawUpdateType, $raw);
+        }
+
         $telegramEventType = $this->detectTelegramUpdateType($raw);
 
         if ($telegramEventType !== null && isset($this->telegramEventHandlers[$telegramEventType])) {
@@ -654,6 +695,52 @@ class Bot implements FlowRuntimeInterface
         }
 
         return null;
+    }
+
+    /**
+     * @param array<string, mixed> $update
+     */
+    private function detectRawUpdateType(array $update): ?string
+    {
+        foreach (array_keys($this->rawUpdateHandlers) as $type) {
+            if (isset($update[$type])) {
+                return $type;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Runs a raw update handler outside the conversation runtime. A failure is reported to the
+     * error handler without a context, because there is no chat to answer in.
+     *
+     * @param array<string, mixed> $raw
+     */
+    private function dispatchRawUpdate(string $type, array $raw): Result
+    {
+        $handler = $this->rawUpdateHandlers[$type];
+
+        try {
+            $this->container->call($handler, [
+                Api::class => $this->api,
+                'api' => $this->api,
+                'update' => $raw,
+                'rawUpdate' => $raw,
+                'type' => $type,
+            ]);
+        } catch (Throwable $exception) {
+            $this->logger->error('Raw Telegram update handler failed', [
+                'update_type' => $type,
+                'error' => $exception->getMessage(),
+            ]);
+
+            $this->errorHandler->handle($exception, null);
+
+            return Result::error('raw_update_failed', ['update_type' => $type]);
+        }
+
+        return Result::success('raw_update_processed', ['update_type' => $type]);
     }
 
     /**
