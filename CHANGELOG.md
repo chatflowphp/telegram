@@ -6,6 +6,17 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-09-12
+
+### Fixed
+
+- `irazasyed/telegram-bot-sdk` is required from `^3.16`, not `^3.14`. Sending a photo, a
+  document, a video, an audio file or an animation by URL throws `CouldNotUploadInputFile` on
+  3.14 and 3.15, which reject a plain URL string and demand an `InputFile`; wrapping a URL in
+  one is not the same thing, as the SDK then downloads the file and uploads its bytes instead
+  of handing Telegram the link. Every media reply was broken on the two lowest versions the
+  constraint allowed.
+
 ## [2.0.0] - 2026-09-12
 
 Adapts to `chatflowphp/core` 2.0 (scenes as states on `chatflowphp/automata` 2.0) and fixes the
@@ -94,6 +105,7 @@ issues found in the 1.x audit. No backward compatibility with 1.x; see `docs/upg
 
 Last release of the 1.x line.
 
-[Unreleased]: https://github.com/chatflowphp/telegram/compare/2.0.0...HEAD
+[Unreleased]: https://github.com/chatflowphp/telegram/compare/2.0.1...HEAD
+[2.0.1]: https://github.com/chatflowphp/telegram/compare/2.0.0...2.0.1
 [2.0.0]: https://github.com/chatflowphp/telegram/compare/1.0.2...2.0.0
 [1.0.2]: https://github.com/chatflowphp/telegram/releases/tag/1.0.2

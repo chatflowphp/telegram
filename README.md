@@ -117,7 +117,7 @@ Telegram requests it makes and on the conversation state.
 
 ## Requirements
 
-PHP 8.2 or newer, `chatflowphp/core` 2.x, `irazasyed/telegram-bot-sdk` 3.14 or newer.
+PHP 8.2 or newer, `chatflowphp/core` 2.x, `irazasyed/telegram-bot-sdk` 3.16 or newer.
 
 ## License
 

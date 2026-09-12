@@ -20,7 +20,7 @@
     "require": {
         "php": "^8.2",
         "chatflowphp/core": "^2.0",
-        "irazasyed/telegram-bot-sdk": "^3.14",
+        "irazasyed/telegram-bot-sdk": "^3.16",
         "psr/log": "^3.0"
     },
     "require-dev": {
