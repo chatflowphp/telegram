@@ -6,6 +6,10 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- Inbound events carry the Telegram message `date` (or `edit_date`) as `getOccurredAt()`.
+
 ## [2.0.0-rc1] - 2026-09-12
 
 Adapts to `chatflowphp/core` 2.0 (scenes as states on `chatflowphp/automata` 2.0) and fixes the
