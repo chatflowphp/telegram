@@ -48,3 +48,9 @@ $bot->onRawUpdate('pre_checkout_query', static function (Api $api, array $update
 
 Without a handler `handle()` returns `Result::noMatch('unsupported_update')` and no conversation
 is created. See [Payments And Updates Without A Chat](payments.md).
+
+## Event Time
+
+`$ctx->getOccurredAt()` is the `date` of the message (or `edit_date` of an edited message) as
+Telegram reported it, in UTC. Callback queries carry no date; their events are stamped with the
+time they were received.

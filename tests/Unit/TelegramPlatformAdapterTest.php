@@ -55,6 +55,7 @@ final class TelegramPlatformAdapterTest extends TestCase
             'update_id' => 1,
             'message' => [
                 'message_id' => 10,
+                'date' => 1789200000,
                 'text' => '/start',
                 'chat' => ['id' => 123],
                 'from' => ['id' => 456, 'username' => 'tester'],
@@ -63,6 +64,7 @@ final class TelegramPlatformAdapterTest extends TestCase
 
         $ref = $event->getMessageRef();
 
+        self::assertSame(1789200000, $event->getOccurredAt()->getTimestamp(), 'The platform time of the message is kept.');
         self::assertSame('123', $event->getConversationId());
         self::assertSame(456, $event->getUserId());
         self::assertSame('/start', $event->getText());

@@ -32,6 +32,8 @@ use ChatFlow\View\Action;
 use ChatFlow\View\Choice;
 use ChatFlow\View\MediaAttachment;
 use ChatFlow\View\View;
+use DateTimeImmutable;
+use DateTimeZone;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Telegram\Bot\Api;
@@ -131,6 +133,10 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
         $text = $sourceMessage['text'] ?? $sourceMessage['caption'] ?? '';
         $messageId = $sourceMessage['message_id'] ?? null;
         $callbackQueryId = $callbackQuery['id'] ?? null;
+        $date = $sourceMessage['edit_date'] ?? $sourceMessage['date'] ?? null;
+        $occurredAt = \is_int($date) && $callbackQuery === null
+            ? (new DateTimeImmutable('@' . $date))->setTimezone(new DateTimeZone('UTC'))
+            : null;
 
         return new InboundEvent(
             conversation: new ConversationRef(
@@ -164,6 +170,7 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
                 'user' => self::filterSerializable($from),
                 'chat' => self::filterSerializable($chat),
             ],
+            occurredAt: $occurredAt,
         );
     }
 
