@@ -588,6 +588,91 @@ final class TelegramPlatformAdapterTest extends TestCase
         self::assertSame('123', TelegramPlatformAdapter::chatIdFor($context));
     }
 
+    public function testALongReplyIsSentAsSeveralMessagesWithTheKeyboardOnTheLast(): void
+    {
+        $client = new MockHttpClient();
+        $adapter = $this->createAdapter($client);
+        $view = View::text(str_repeat("line\n", 2000))->addActionRow(new Action('menu:open', 'Menu'));
+
+        self::assertTrue($adapter->deliver($this->plainContext($adapter), new ReplyEffect($view))->isSuccess());
+
+        $requests = $client->getRequests();
+        $last = \count($requests) - 1;
+
+        self::assertGreaterThan(1, \count($requests));
+
+        foreach ($requests as $index => $request) {
+            self::assertSame('sendMessage', $request['endpoint']);
+            self::assertLessThanOrEqual(4096, mb_strlen(self::paramString($request, 'text')));
+            self::assertSame(
+                $index === $last,
+                isset($request['params']['reply_markup']),
+                'Only the last message carries the keyboard.',
+            );
+        }
+    }
+
+    public function testALongCaptionContinuesAsFollowUpMessages(): void
+    {
+        $client = new MockHttpClient();
+        $adapter = $this->createAdapter($client);
+        $view = View::text(str_repeat('caption ', 300))->addMedia(new MediaAttachment('image', 'https://example.com/photo.jpg'));
+
+        self::assertTrue($adapter->deliver($this->plainContext($adapter), new ReplyEffect($view))->isSuccess());
+
+        $requests = $client->getRequests();
+
+        self::assertSame(['sendPhoto', 'sendMessage'], array_column($requests, 'endpoint'));
+        self::assertLessThanOrEqual(1024, mb_strlen(self::paramString($requests[0], 'caption')));
+        self::assertNotSame('', self::paramString($requests[1], 'text'));
+    }
+
+    public function testARenderTooLongToEditFallsBackToSendingChunks(): void
+    {
+        $client = new MockHttpClient();
+        $adapter = $this->createAdapter($client);
+
+        $adapter->deliver($this->actionContext($adapter), new RenderEffect(View::text(str_repeat("line\n", 2000))));
+
+        $endpoints = array_column($client->getRequests(), 'endpoint');
+
+        self::assertNotContains('editMessageText', $endpoints, 'A text over the limit cannot be edited into place.');
+        self::assertSame('deleteMessage', $endpoints[0]);
+        self::assertGreaterThan(1, \count(array_filter($endpoints, static fn(string $endpoint): bool => $endpoint === 'sendMessage')));
+    }
+
+    public function testAnOversizedAckIsTruncatedToWhatTelegramAccepts(): void
+    {
+        $client = new MockHttpClient();
+        $adapter = $this->createAdapter($client);
+
+        $adapter->deliver($this->actionContext($adapter), new AckEffect(str_repeat('e', 500)));
+
+        $requests = $client->getRequests();
+
+        self::assertSame('answerCallbackQuery', $requests[0]['endpoint']);
+        self::assertSame(200, mb_strlen(self::paramString($requests[0], 'text')));
+    }
+
+    /**
+     * @param array{endpoint: string, method: string, params: array<string, mixed>} $request
+     */
+    private static function paramString(array $request, string $key): string
+    {
+        $value = $request['params'][$key] ?? null;
+
+        return \is_string($value) ? $value : '';
+    }
+
+    private function plainContext(TelegramPlatformAdapter $adapter): Context
+    {
+        return new Context(
+            new InboundEvent(conversation: new ConversationRef('123', 'telegram'), text: 'hi'),
+            $adapter,
+            new Container(),
+        );
+    }
+
     private function createAdapter(MockHttpClient $client): TelegramPlatformAdapter
     {
         $api = new Api('TEST_TOKEN', false, $client);

@@ -387,7 +387,9 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
         $canEdit = $preferRender && $context->isAction() && !$usesChoices && isset($messageRefData['chat_id'], $messageRefData['message_id']);
         $target = ['chat_id' => $messageRefData['chat_id'] ?? null, 'message_id' => $messageRefData['message_id'] ?? null];
 
-        if ($canEdit && !$hasMedia && $currentMessageType === 'text') {
+        // A text that no longer fits one message cannot be edited into place: fall through to the
+        // delete-and-send path, which splits it.
+        if ($canEdit && !$hasMedia && $currentMessageType === 'text' && !TelegramText::exceeds($view->getText(), TelegramText::MESSAGE_LIMIT)) {
             try {
                 return $this->api->editMessageText(array_merge($target, ['text' => $view->getText()], $replyMarkup, $optionsParams));
             } catch (Throwable $exception) {
@@ -399,7 +401,8 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
             }
         }
 
-        if ($canEdit && $hasMedia && \is_string($currentMessageType) && \in_array($currentMessageType, self::EDITABLE_MEDIA_TYPES, true)) {
+        if ($canEdit && $hasMedia && \is_string($currentMessageType) && \in_array($currentMessageType, self::EDITABLE_MEDIA_TYPES, true)
+            && !TelegramText::exceeds($view->getText(), TelegramText::CAPTION_LIMIT)) {
             try {
                 return $this->api->editMessageMedia(array_merge($target, [
                     'media' => json_encode($this->buildInputMedia($view->getMedia()[0], $view->getText(), $options), JSON_THROW_ON_ERROR),
@@ -425,10 +428,34 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
             return $this->sendMedia($context, $view->getMedia()[0], $view->getText(), array_merge($replyMarkup, $optionsParams));
         }
 
-        return $this->api->sendMessage(array_merge([
-            'chat_id' => self::chatIdFor($context),
-            'text' => $view->getText(),
-        ], $replyMarkup, $optionsParams));
+        return $this->sendText($context, $view->getText(), $optionsParams, $replyMarkup);
+    }
+
+    /**
+     * Sends a text as one message, or as several when it is over the Bot API limit. The keyboard
+     * goes on the last message, which is the one the user acts on.
+     *
+     * @param array<string, mixed> $optionsParams
+     * @param array<string, mixed> $replyMarkup
+     */
+    private function sendText(Context $context, string $text, array $optionsParams, array $replyMarkup): mixed
+    {
+        $chunks = TelegramText::split($text);
+        $chatId = self::chatIdFor($context);
+        $lastIndex = \count($chunks) - 1;
+        $response = null;
+
+        foreach ($chunks as $index => $chunk) {
+            $params = array_merge(['chat_id' => $chatId, 'text' => $chunk], $optionsParams);
+
+            if ($index === $lastIndex) {
+                $params = array_merge($params, $replyMarkup);
+            }
+
+            $response = $this->api->sendMessage($params);
+        }
+
+        return $response;
     }
 
     /**
@@ -503,9 +530,11 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
             $context->set(self::ACKED_FLAG, true);
 
             try {
+                $text = $effect->getText();
+
                 $this->api->answerCallbackQuery([
                     'callback_query_id' => $callbackQueryId,
-                    'text' => $effect->getText(),
+                    'text' => $text === null ? null : TelegramText::truncate($text, TelegramText::ACK_LIMIT),
                     'show_alert' => $effect->isError(),
                 ]);
 
@@ -534,10 +563,21 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
      */
     private function sendMedia(Context $context, MediaAttachment $media, string $text, array $extra): mixed
     {
-        $params = array_merge(['chat_id' => self::chatIdFor($context), 'caption' => $text], $extra);
+        $caption = $text;
+        $remainder = '';
+
+        // A caption is limited to a quarter of a message: the rest follows as ordinary messages
+        // instead of being lost.
+        if (TelegramText::exceeds($text, TelegramText::CAPTION_LIMIT)) {
+            $chunks = TelegramText::split($text, TelegramText::CAPTION_LIMIT);
+            $caption = (string) array_shift($chunks);
+            $remainder = implode("\n", $chunks);
+        }
+
+        $params = array_merge(['chat_id' => self::chatIdFor($context), 'caption' => $caption], $extra);
         $source = TelegramPublisher::normalizeMediaSource($media->getSource());
 
-        return match (self::normalizeMediaType($media->getType())) {
+        $response = match (self::normalizeMediaType($media->getType())) {
             'photo' => $this->api->sendPhoto(array_merge($params, ['photo' => $source])),
             'document' => $this->api->sendDocument(array_merge($params, ['document' => $source])),
             'video' => $this->api->sendVideo(array_merge($params, ['video' => $source])),
@@ -545,6 +585,15 @@ final class TelegramPlatformAdapter implements PlatformAdapterInterface, Runtime
             'animation' => $this->api->sendAnimation(array_merge($params, ['animation' => $source])),
             default => throw new ValidationException(\sprintf('Unsupported media type "%s".', $media->getType())),
         };
+
+        if ($remainder !== '') {
+            $followUp = $extra;
+            unset($followUp['reply_markup']);
+
+            $this->sendText($context, $remainder, $followUp, []);
+        }
+
+        return $response;
     }
 
     /**

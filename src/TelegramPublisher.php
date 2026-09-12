@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace ChatFlow\Telegram;
 
+use ChatFlow\Telegram\Exception\TelegramMessageTooLongException;
 use ChatFlow\Telegram\Media\TelegramMedia;
 use InvalidArgumentException;
 use Telegram\Bot\Api;
@@ -40,6 +41,8 @@ final class TelegramPublisher
         string $text,
         ?TelegramMessageOptions $options = null,
     ): TelegramDeliveryResult {
+        self::assertFits($text, TelegramText::MESSAGE_LIMIT, 'text');
+
         $params = array_merge([
             'chat_id' => $chatId,
             'text' => $text,
@@ -60,6 +63,8 @@ final class TelegramPublisher
         ], $options?->toTelegramParams() ?? []);
 
         if ($media->getCaption() !== null && $media->getCaption() !== '') {
+            self::assertFits($media->getCaption(), TelegramText::CAPTION_LIMIT, 'caption');
+
             $params['caption'] = $media->getCaption();
         }
 
@@ -143,6 +148,8 @@ final class TelegramPublisher
         string $text,
         ?TelegramMessageOptions $options = null,
     ): TelegramDeliveryResult {
+        self::assertFits($text, TelegramText::MESSAGE_LIMIT, 'text');
+
         $response = $this->call(fn(): mixed => $this->api->editMessageText(array_merge([
             'chat_id' => $chatId,
             'message_id' => $messageId,
@@ -158,6 +165,8 @@ final class TelegramPublisher
         string $caption,
         ?TelegramMessageOptions $options = null,
     ): TelegramDeliveryResult {
+        self::assertFits($caption, TelegramText::CAPTION_LIMIT, 'caption');
+
         $response = $this->call(fn(): mixed => $this->api->editMessageCaption(array_merge([
             'chat_id' => $chatId,
             'message_id' => $messageId,
@@ -251,5 +260,18 @@ final class TelegramPublisher
         }
 
         return $ids;
+    }
+
+    /**
+     * The publisher sends exactly one message, so an oversized text is the caller's decision to
+     * make, not something to split behind their back.
+     *
+     * @throws TelegramMessageTooLongException
+     */
+    private static function assertFits(string $text, int $limit, string $field): void
+    {
+        if (TelegramText::exceeds($text, $limit)) {
+            throw new TelegramMessageTooLongException(mb_strlen($text), $limit, $field);
+        }
     }
 }
