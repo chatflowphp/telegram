@@ -4,8 +4,8 @@ on:
   push:
     branches:
       - main
-      - v2
   pull_request:
+  workflow_dispatch:
 
 jobs:
   tests:
@@ -28,9 +28,6 @@ jobs:
           php-version: ${{ matrix.php }}
           coverage: none
           tools: composer
-
-      - name: Link chatflowphp packages from git
-        uses: ./.github/actions/link-packages
 
       - name: Install dependencies (highest)
         if: matrix.dependencies == 'highest'
@@ -63,9 +60,6 @@ jobs:
 
       - name: Validate composer.json
         run: composer validate --strict
-
-      - name: Link chatflowphp packages from git
-        uses: ./.github/actions/link-packages
 
       - name: Install dependencies
         run: composer update --no-interaction --no-progress --prefer-dist
