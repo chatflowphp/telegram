@@ -6,17 +6,14 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
-### Added
-
-- Inbound events carry the Telegram message `date` (or `edit_date`) as `getOccurredAt()`.
-
-## [2.0.0-rc1] - 2026-09-12
+## [2.0.0] - 2026-09-12
 
 Adapts to `chatflowphp/core` 2.0 (scenes as states on `chatflowphp/automata` 2.0) and fixes the
 issues found in the 1.x audit. No backward compatibility with 1.x; see `docs/upgrade-from-1.x.md`.
 
 ### Added
 
+- Inbound events carry the Telegram message `date` (or `edit_date`) as `getOccurredAt()`.
 - `Bot::onRawUpdate()` dispatches updates that carry no chat (`pre_checkout_query`,
   `shipping_query`, `inline_query`, polls) to a handler with `Telegram\Bot\Api`, the raw update
   and the type injected, so Telegram payments can be completed. See `docs/payments.md`.
