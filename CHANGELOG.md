@@ -6,6 +6,11 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [2.0.0-rc1] - 2026-09-12
+
+Adapts to `chatflowphp/core` 2.0 (scenes as states on `chatflowphp/automata` 2.0) and fixes the
+issues found in the 1.x audit. No backward compatibility with 1.x; see `docs/upgrade-from-1.x.md`.
+
 ### Added
 
 - `Bot::onRawUpdate()` dispatches updates that carry no chat (`pre_checkout_query`,
@@ -29,18 +34,6 @@ All notable changes to this project are documented in this file. The format foll
   keep what fits and continue as messages, acknowledgements are truncated, and the publisher
   raises `TelegramMessageTooLongException`. See `docs/rendering.md`.
 - `MockHttpClient::rateLimitEndpoint()` simulates 429 with `retry_after`.
-
-### Changed
-
-- `Bot::onTelegramEvent()` throws on an update type it does not dispatch instead of accepting a
-  handler that would never run.
-
-## [2.0.0] - 2026-09-10
-
-Adapts to `chatflowphp/core` 2.0 (scenes as states on `chatflowphp/automata` 2.0) and fixes the
-issues found in the 1.x audit. No backward compatibility with 1.x; see `docs/upgrade-from-1.x.md`.
-
-### Added
 
 - Signed callback payloads (`cs:<signature>:["id",payload]`); forged or unsigned payloads are
   rejected before any handler runs and the query is answered silently. `Bot` derives the key
@@ -66,6 +59,9 @@ issues found in the 1.x audit. No backward compatibility with 1.x; see `docs/upg
 - CI runs the example scenarios.
 
 ### Changed
+
+- `Bot::onTelegramEvent()` throws on an update type it does not dispatch instead of accepting a
+  handler that would never run.
 
 - `onMedia()` and `onTelegramEvent()` handlers run through the core `Application`: middleware,
   sessions, scenes, rollback and the runtime observer apply to them. Telegram event handlers are
