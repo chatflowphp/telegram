@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- `Bot` takes `timers:` (a `TimerStoreInterface`) and `clock:` and hands them to the
+  `Application` it builds, so `$ctx->wakeAt()` works behind the facade; deliver due timers with
+  `$bot->getApplication()->runDue()`. Without a store timers are ignored, as before.
+
 ## [2.0.1] - 2026-09-12
 
 ### Fixed

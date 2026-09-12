@@ -94,6 +94,25 @@ Immediate calls run a system tick through the regular runtime and send the scene
 the chat. `enterLater()` records the intent; the scene is entered, with its `onEnter()` output,
 when the chat's next update arrives, and that update is consumed unless `handleTrigger: true`.
 
+## Timers
+
+Give the bot a timer store to let scenes and handlers wake a chat later (`$ctx->wakeAt()`),
+and a clock when the time should come from somewhere else than the system:
+
+```php
+$bot = new Bot($token, __DIR__, storage: $storage, timers: new FileTimerStore(__DIR__ . '/storage'));
+```
+
+Timers are delivered by `runDue()`; call it from a scheduler as often as the shortest timer you
+use, together with `drain()` for the side effects a crashed request left behind:
+
+```php
+$application = $bot->getApplication();
+$application->runDue();
+```
+
+Without a store `wakeAt()` schedules nothing. See `chatflowphp/core` `docs/timers.md`.
+
 ## Runtime Access
 
 ```php

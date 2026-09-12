@@ -35,7 +35,9 @@ use ChatFlow\Telegram\I18n\TelegramLocaleResolver;
 use ChatFlow\Telegram\MediaGroup\FileTelegramMediaGroupStore;
 use ChatFlow\Telegram\MediaGroup\TelegramMediaGroupCollector;
 use ChatFlow\Telegram\UI\TelegramScreenManager;
+use ChatFlow\Timer\TimerStoreInterface;
 use ChatFlow\Validation\ValidationRegistry;
+use Psr\Clock\ClockInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Telegram\Bot\Api;
@@ -110,6 +112,9 @@ class Bot implements FlowRuntimeInterface
     /**
      * @param string $basePath Directory for default file stores (`storage/telegram-callbacks`, `storage/telegram-media-groups`).
      * @param string|null $callbackSecret Key used to sign inline callback payloads; derived from the token by default.
+     * @param TimerStoreInterface|null $timers Timer store for `$ctx->wakeAt()`; without one timers are ignored. Run
+     *                                         `getApplication()->runDue()` from a scheduler to deliver them.
+     * @param ClockInterface|null $clock The clock timers and session expiry count from; the system clock by default.
      *
      * @throws TelegramSDKException
      */
@@ -146,6 +151,8 @@ class Bot implements FlowRuntimeInterface
         ?string $callbackSecret = null,
         private readonly ConversationScope $conversationScope = ConversationScope::Chat,
         ?TelegramRateLimiter $rateLimiter = null,
+        private readonly ?TimerStoreInterface $timers = null,
+        private readonly ?ClockInterface $clock = null,
     ) {
         $this->container = $container ?? new Container();
         $this->logger = $logger ?? new NullLogger();
@@ -624,7 +631,7 @@ class Bot implements FlowRuntimeInterface
                 $this->storage ?? new MemoryStorage(),
                 $this->transitions,
                 $this->sessionTtlSeconds,
-                null,
+                $this->clock,
                 $this->runtimeObserver,
             );
 
@@ -637,6 +644,8 @@ class Bot implements FlowRuntimeInterface
                 validationRegistry: $this->validation,
                 logger: $this->logger,
                 runtimeObserver: $this->runtimeObserver,
+                timers: $this->timers,
+                clock: $this->clock,
             );
             $application->middleware($this->middlewares);
 

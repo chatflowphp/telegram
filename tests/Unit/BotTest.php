@@ -9,6 +9,7 @@ use ChatFlow\Exception\LogicException;
 use ChatFlow\Storage\Drivers\MemoryStorage;
 use ChatFlow\Telegram\Bot;
 use ChatFlow\Telegram\Testing\MockHttpClient;
+use ChatFlow\Timer\Drivers\MemoryTimerStore;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 use Telegram\Bot\Api;
@@ -39,6 +40,38 @@ final class BotTest extends TestCase
         self::assertSame('kicked', $this->status);
     }
 
+    public function testTimersAndClockReachTheApplication(): void
+    {
+        $timers = new MemoryTimerStore();
+        $clock = new \Automata\Clock\FrozenClock(new \DateTimeImmutable('2026-09-12 12:00:00'));
+        $bot = new Bot(
+            'TEST_TOKEN',
+            sys_get_temp_dir() . '/chatflow-bot-test',
+            api: new Api('TEST_TOKEN', false, new MockHttpClient()),
+            storage: new MemoryStorage(),
+            timers: $timers,
+            clock: $clock,
+        );
+        $bot->command('remind', static function (Context $ctx): void {
+            $ctx->wakeAt(60, 'remind');
+        });
+        $bot->getApplication()->onTimer('remind', static function (Context $ctx): void {
+            $ctx->reply('reminder');
+        });
+
+        self::assertSame($timers, $bot->getApplication()->getTimers());
+
+        $bot->handle(self::commandUpdate('/remind'));
+
+        self::assertCount(1, $timers->due($clock->now()->modify('+2 minutes'), 10));
+        self::assertSame(1, $bot->getApplication()->runDue($clock->now()->modify('+2 minutes')));
+    }
+
+    public function testWithoutATimerStoreTheApplicationHasNone(): void
+    {
+        self::assertNull(self::bot()->getApplication()->getTimers());
+    }
+
     /**
      * @param array<string, mixed> $update
      */
@@ -59,6 +92,24 @@ final class BotTest extends TestCase
             api: new Api('TEST_TOKEN', false, $client ?? new MockHttpClient()),
             storage: new MemoryStorage(),
         );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function commandUpdate(string $text): array
+    {
+        return [
+            'update_id' => 2,
+            'message' => [
+                'message_id' => 10,
+                'chat' => ['id' => 77, 'type' => 'private'],
+                'from' => ['id' => 77, 'is_bot' => false, 'first_name' => 'T'],
+                'date' => 0,
+                'text' => $text,
+                'entities' => [['type' => 'bot_command', 'offset' => 0, 'length' => \strlen($text)]],
+            ],
+        ];
     }
 
     /**
