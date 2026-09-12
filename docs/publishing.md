@@ -62,6 +62,12 @@ $publisher->editCaption($chatId, $messageId, 'Updated caption');
 $publisher->deleteMessage($chatId, $messageId);
 ```
 
+## Limits And Failures
+
+The publisher sends one message per call, so it refuses what does not fit instead of splitting:
+`TelegramMessageTooLongException` for a text over 4096 characters or a caption over 1024. A flood
+limit raises `TelegramRateLimitException` with the `retry_after` Telegram asked for.
+
 ## Result Objects
 
 `TelegramDeliveryResult` contains:

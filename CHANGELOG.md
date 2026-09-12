@@ -22,6 +22,13 @@ All notable changes to this project are documented in this file. The format foll
 - The bundled examples cover the new capabilities: StarterBot speaks Russian and English with a
   language switch, and MiniShop pays a confirmed order with Telegram Stars end to end.
 - `MockHttpClient` returns a message for `sendInvoice`, so payment flows can be tested offline.
+- `TelegramRateLimiter` handles 429: a short `retry_after` is waited out and retried, a longer one
+  becomes `TelegramRateLimitException`. Delivery reports `telegram_rate_limited` with the wait;
+  the publisher raises so a broadcast can requeue. See `docs/deployment.md`.
+- `TelegramText` and the Bot API text limits: replies over 4096 characters are split, captions
+  keep what fits and continue as messages, acknowledgements are truncated, and the publisher
+  raises `TelegramMessageTooLongException`. See `docs/rendering.md`.
+- `MockHttpClient::rateLimitEndpoint()` simulates 429 with `retry_after`.
 
 ### Changed
 

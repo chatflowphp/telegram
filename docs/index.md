@@ -74,6 +74,7 @@ Effects`, `Storage`, `Validation` and `Localization`. `Architecture` and `Applic
 - `ChatFlow\Telegram\MediaGroup\TelegramMediaGroupCollector`
 - `ChatFlow\Telegram\UI\TelegramScreenManager`
 - `ChatFlow\Telegram\ConversationScope`
+- `ChatFlow\Telegram\TelegramRateLimiter`, `TelegramText`
 - `ChatFlow\Telegram\I18n\TelegramLocaleResolver`
 - `ChatFlow\Telegram\Testing\TelegramBotTester`, `MockHttpClient`
 

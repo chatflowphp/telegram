@@ -47,6 +47,28 @@ Pass a `RuntimeObserverInterface` to the bot constructor. `JsonlRuntimeObserver`
 matches, scene transitions, queued and delivered effects, delivery failures, handler failures and
 conversation resets as newline-delimited JSON.
 
+## Rate Limits
+
+Telegram answers a flood with 429 and a `retry_after`. `TelegramRateLimiter` repeats a throttled
+call once when the wait is short (up to 3 seconds by default) and reports a longer one, because a
+webhook worker must not be blocked for a minute.
+
+```php
+$bot = new Bot($token, $basePath, rateLimiter: new TelegramRateLimiter(maxRetries: 2, maxWaitSeconds: 5));
+```
+
+- Delivery through the runtime turns it into a `telegram_rate_limited` delivery error carrying
+  `retry_after`; the conversation is already stored, only the message was refused.
+- `TelegramPublisher` raises `TelegramRateLimitException`, so a broadcast can requeue the chat
+  instead of losing it. Send broadcasts from a queue worker, not from a webhook request.
+
+## Concurrent Updates
+
+Two updates for one chat can be handled at the same time. The snapshot is written only when the
+conversation has not changed since the update read it, and a tick that lost the race is replayed
+on top of the winner; see the core `docs/storage.md`. Handlers can therefore run more than once
+for one update: keep payments, orders and other outside effects idempotent.
+
 ## Delivery Failures
 
 Remote media URLs, Telegram edit restrictions and Bot API errors can fail delivery.

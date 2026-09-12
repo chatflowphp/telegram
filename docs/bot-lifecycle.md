@@ -20,7 +20,7 @@ $bot = new Bot(
 Optional constructor arguments: `logger`, `container`, `webhookSecret`, `api`, `errorHandler`,
 `router`, `sceneRegistry`, `validationRegistry`, `runtimeObserver`, `callbackPayloadEncoder`,
 `mediaGroupCollector`, `publisher`, `storage`, `sessionTtlSeconds`, `debug`, `callbackSecret`,
-`conversationScope`.
+`conversationScope`, `rateLimiter`.
 
 `conversationScope` decides what a conversation is in a group chat; see
 [Group Chats](groups.md).

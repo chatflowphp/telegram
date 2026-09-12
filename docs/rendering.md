@@ -57,6 +57,25 @@ $ctx->ack('Cannot do this', true);
 
 For callback queries, it uses Telegram `answerCallbackQuery()`.
 
+## Text Limits
+
+Telegram accepts 4096 characters in a message, 1024 in a caption and 200 in a callback answer.
+The adapter keeps replies inside them instead of letting the Bot API reject the call:
+
+| Output | What happens when it is too long |
+| --- | --- |
+| `reply()` text | split on line and word boundaries; the keyboard goes on the last message |
+| `render()` text | too long to edit, so the screen is deleted and sent again in pieces |
+| media caption | the caption keeps what fits, the rest follows as ordinary messages |
+| `ack()` text | truncated |
+
+`TelegramPublisher` sends exactly one message, so it raises `TelegramMessageTooLongException`
+instead of splitting; the caller decides how to shorten it.
+
+`TelegramText::split()` is the same helper, available for your own formatting. Splitting happens
+on text boundaries, so a `parse_mode` entity that spans the cut can break: prefer plain text for
+very long output, or split it yourself where the markup allows.
+
 ## Telegram Message Options
 
 Attach Telegram Bot API message options through `TelegramView`:

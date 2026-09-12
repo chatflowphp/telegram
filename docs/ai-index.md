@@ -41,6 +41,9 @@ $bot->onAction('shop:open', static function (Context $ctx): void {
 - Updates without a chat (payments, inline queries): `onRawUpdate('pre_checkout_query', $handler)`,
   handled outside the conversation with `Telegram\Bot\Api` injected.
 - Deep links: `$ctx->getCommandArgument()` for "/start ref_abc123".
+- Long output is split automatically in replies; `TelegramPublisher` raises instead of splitting.
+- 429 is handled by `TelegramRateLimiter`: short waits are retried, longer ones raise
+  `TelegramRateLimitException` with `retry_after`.
 - Groups: one conversation per chat by default, per member with
   `conversationScope: ConversationScope::ChatAndUser`.
 - Localization: register `ChatFlow\I18n\TranslatorInterface`, add `LocaleMiddleware::class`,
