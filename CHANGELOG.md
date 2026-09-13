@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-13
+
 ### Added
 
 - `Bot` takes `timers:` (a `TimerStoreInterface`) and `clock:` and hands them to the
@@ -111,7 +113,8 @@ issues found in the 1.x audit. No backward compatibility with 1.x; see `docs/upg
 
 Last release of the 1.x line.
 
-[Unreleased]: https://github.com/chatflowphp/telegram/compare/2.0.1...HEAD
+[Unreleased]: https://github.com/chatflowphp/telegram/compare/2.1.0...HEAD
+[2.1.0]: https://github.com/chatflowphp/telegram/compare/2.0.1...2.1.0
 [2.0.1]: https://github.com/chatflowphp/telegram/compare/2.0.0...2.0.1
 [2.0.0]: https://github.com/chatflowphp/telegram/compare/1.0.2...2.0.0
 [1.0.2]: https://github.com/chatflowphp/telegram/releases/tag/1.0.2
