@@ -187,7 +187,7 @@ final class TelegramParityLayerTest extends TestCase
 
         $this->tester->clear()->sendCommand('/screen');
         self::assertSame(['deleteMessage', 'sendMessage', 'sendMessage'], array_column($this->client->getRequests(), 'endpoint'));
-        $tracked = $this->tester->conversation()->getContext()->getExtension('telegram.screens')['admin'] ?? null;
+        $tracked = $this->tester->resume()->getContext()->getExtension('telegram.screens')['admin'] ?? null;
         self::assertIsArray($tracked);
         self::assertCount(1, $tracked);
     }

@@ -50,6 +50,11 @@ $tester->assertNoScenePending();
 $tester->assertSessionHas('key', 'value');
 $tester->assertSessionMissing('key');
 $tester->assertResult('success', 'scene_processed');
+$tester->assertSideEffectPending('crm');
+$tester->assertNoSideEffectsPending();
+$tester->assertSideEffectFailed('crm');
+$tester->assertTimerScheduled('reminder', $at);
+$tester->assertNoTimer('reminder');
 ```
 
 ## Inspection
@@ -57,7 +62,8 @@ $tester->assertResult('success', 'scene_processed');
 ```php
 $tester->getRequests();        // endpoint, method, params per Telegram call
 $tester->getLastResult();      // core Result of the last update
-$tester->conversation();       // current scene, history, session data
+$tester->resume();             // current scene, history, session data
+$tester->conversation();       // ConversationRef
 ```
 
 `MockHttpClient::failEndpoint('editMessageText', 'Bad Request: ...')` simulates Bot API errors.

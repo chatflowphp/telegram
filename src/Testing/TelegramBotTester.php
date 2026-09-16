@@ -6,14 +6,16 @@ namespace ChatFlow\Telegram\Testing;
 
 use ChatFlow\Core\ClosureResolver;
 use ChatFlow\Core\Result;
+use ChatFlow\Event\ConversationRef;
 use ChatFlow\Exception\LogicException;
 use ChatFlow\Exception\ValidationException;
 use ChatFlow\Scene\BaseScene;
 use ChatFlow\Scene\Conversation;
-use ChatFlow\Scene\RootScene;
 use ChatFlow\Telegram\Bot;
+use ChatFlow\Testing\ConversationAssertions;
 use ChatFlow\View\Action;
 use Closure;
+use DateTimeImmutable;
 use PHPUnit\Framework\Assert;
 use Telegram\Bot\Objects\Update;
 
@@ -23,6 +25,8 @@ use Telegram\Bot\Objects\Update;
  */
 final class TelegramBotTester
 {
+    private ConversationAssertions $state;
+
     private int $updateId = 1;
 
     private int $messageId = 1;
@@ -35,13 +39,16 @@ final class TelegramBotTester
         private string $chatId = '123456789',
         private string $userId = '123456789',
         private string $username = 'test_user',
-    ) {}
+    ) {
+        $this->state = new ConversationAssertions($this->bot->getApplication(), $this->conversationId());
+    }
 
     public function user(string $chatId, ?string $userId = null, ?string $username = null): self
     {
         $this->chatId = $chatId;
         $this->userId = $userId ?? $chatId;
         $this->username = $username ?? 'test_user';
+        $this->state = new ConversationAssertions($this->bot->getApplication(), $this->conversationId());
 
         return $this;
     }
@@ -187,9 +194,14 @@ final class TelegramBotTester
         return $this->bot->conversationIdFor($this->chatId, $this->userId);
     }
 
-    public function conversation(): Conversation
+    public function conversation(): ConversationRef
     {
-        return $this->bot->getConversations()->resume($this->conversationId());
+        return $this->state->conversation();
+    }
+
+    public function resume(): Conversation
+    {
+        return $this->state->resume();
     }
 
     // -- assertions ----------------------------------------------------------------------------
@@ -286,14 +298,14 @@ final class TelegramBotTester
      */
     public function assertScene(string $scene): self
     {
-        Assert::assertSame($this->bot->getScenes()->resolveId($scene), $this->conversation()->getCurrentScene());
+        $this->state->assertScene($scene);
 
         return $this;
     }
 
     public function assertNotInScene(): self
     {
-        Assert::assertSame(RootScene::ID, $this->conversation()->getCurrentScene());
+        $this->state->assertNotInScene();
 
         return $this;
     }
@@ -303,29 +315,24 @@ final class TelegramBotTester
      */
     public function assertScenePending(string $scene): self
     {
-        $pending = $this->bot->getConversations()->getPending($this->conversationId());
-
-        Assert::assertNotNull($pending, 'No scene transition is pending.');
-        Assert::assertSame('enter', $pending['action']);
-        Assert::assertSame($this->bot->getScenes()->resolveId($scene), $pending['scene']);
+        $this->state->assertScenePending($scene);
 
         return $this;
     }
 
     public function assertNoScenePending(): self
     {
-        Assert::assertNull($this->bot->getConversations()->getPending($this->conversationId()));
+        $this->state->assertNoScenePending();
 
         return $this;
     }
 
     public function assertSessionHas(string $key, mixed $expectedValue = null): self
     {
-        $session = $this->conversation()->getContext();
-        Assert::assertTrue($session->has($key), \sprintf("Expected session to have key '%s'.", $key));
-
-        if (\func_num_args() > 1) {
-            Assert::assertSame($expectedValue, $session->get($key));
+        if (\func_num_args() >= 2) {
+            $this->state->assertSessionHas($key, $expectedValue);
+        } else {
+            $this->state->assertSessionHas($key);
         }
 
         return $this;
@@ -333,19 +340,49 @@ final class TelegramBotTester
 
     public function assertSessionMissing(string $key): self
     {
-        Assert::assertFalse($this->conversation()->getContext()->has($key), \sprintf("Expected session not to have key '%s'.", $key));
+        $this->state->assertSessionMissing($key);
 
         return $this;
     }
 
     public function assertResult(string $status, ?string $message = null): self
     {
-        Assert::assertNotNull($this->lastResult, 'No update has been handled yet.');
-        Assert::assertSame($status, $this->lastResult->getStatus());
+        $this->state->assertResult($status, $message);
 
-        if ($message !== null) {
-            Assert::assertSame($message, $this->lastResult->getMessage());
-        }
+        return $this;
+    }
+
+    public function assertSideEffectPending(string $handler): self
+    {
+        $this->state->assertSideEffectPending($handler);
+
+        return $this;
+    }
+
+    public function assertNoSideEffectsPending(): self
+    {
+        $this->state->assertNoSideEffectsPending();
+
+        return $this;
+    }
+
+    public function assertSideEffectFailed(string $handler): self
+    {
+        $this->state->assertSideEffectFailed($handler);
+
+        return $this;
+    }
+
+    public function assertTimerScheduled(string $reason, ?DateTimeImmutable $at = null): self
+    {
+        $this->state->assertTimerScheduled($reason, $at);
+
+        return $this;
+    }
+
+    public function assertNoTimer(string $reason): self
+    {
+        $this->state->assertNoTimer($reason);
 
         return $this;
     }
@@ -359,6 +396,7 @@ final class TelegramBotTester
     {
         $update['update_id'] ??= $this->updateId++;
         $this->lastResult = $this->bot->handle(new Update($update));
+        $this->state->recordResult($this->lastResult);
 
         return $this;
     }
