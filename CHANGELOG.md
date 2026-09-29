@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-30
+
 ### Added
 
 - `Bot::startPolling()` accepts an `onTick:` callback (`(callable(self): (bool|void))|null`) invoked on each polling iteration; returning `false` terminates polling gracefully.
@@ -124,7 +126,8 @@ issues found in the 1.x audit. No backward compatibility with 1.x; see `docs/upg
 
 Last release of the 1.x line.
 
-[Unreleased]: https://github.com/chatflowphp/telegram/compare/2.1.0...HEAD
+[Unreleased]: https://github.com/chatflowphp/telegram/compare/2.2.0...HEAD
+[2.2.0]: https://github.com/chatflowphp/telegram/compare/2.1.0...2.2.0
 [2.1.0]: https://github.com/chatflowphp/telegram/compare/2.0.1...2.1.0
 [2.0.1]: https://github.com/chatflowphp/telegram/compare/2.0.0...2.0.1
 [2.0.0]: https://github.com/chatflowphp/telegram/compare/1.0.2...2.0.0
