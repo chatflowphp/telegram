@@ -6,6 +6,17 @@ All notable changes to this project are documented in this file. The format foll
 
 ## [Unreleased]
 
+### Added
+
+- `Bot::startPolling()` accepts an `onTick:` callback (`(callable(self): (bool|void))|null`) invoked on each polling iteration; returning `false` terminates polling gracefully.
+- `Bot::isPolling()` and `Bot::stopPolling()` to inspect and terminate the long-polling loop.
+- `Bot::preparePollingUpdates()` visibility made `protected` to allow custom update preprocessing.
+- `TelegramPublisher::editReplyMarkup()` to edit or remove inline keyboard buttons.
+- `TelegramContext::removeButtons()` and `TelegramContext::editReplyMarkup()` convenience helpers.
+- `TelegramContext::publisher()` and `TelegramContext::api()` getters resolved from container.
+- `TelegramMessageOptions::withReplyMarkup()` and `withoutReplyMarkup()`.
+- `MockHttpClient` supports `editMessageReplyMarkup` and returns an empty array for `getUpdates`.
+
 ## [2.1.0] - 2026-09-13
 
 ### Added
