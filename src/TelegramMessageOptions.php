@@ -65,6 +65,28 @@ final class TelegramMessageOptions
     }
 
     /**
+     * @param array<string, mixed>|string|null $replyMarkup Array for inline_keyboard, encoded JSON string, or null to clear markup
+     */
+    public function withReplyMarkup(array|string|null $replyMarkup): self
+    {
+        $extra = $this->extra;
+        if ($replyMarkup === null) {
+            $extra['reply_markup'] = json_encode(['inline_keyboard' => []], JSON_THROW_ON_ERROR);
+        } elseif (\is_array($replyMarkup)) {
+            $extra['reply_markup'] = json_encode($replyMarkup, JSON_THROW_ON_ERROR);
+        } else {
+            $extra['reply_markup'] = $replyMarkup;
+        }
+
+        return new self($this->parseMode, $this->disableWebPagePreview, $this->replyToMessageId, $this->forceReply, $this->selective, $this->protectContent, $extra);
+    }
+
+    public function withoutReplyMarkup(): self
+    {
+        return $this->withReplyMarkup(null);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function toMeta(): array

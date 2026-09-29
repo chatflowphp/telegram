@@ -216,7 +216,7 @@ final class MockHttpClient implements HttpClientInterface
     {
         $messageMethods = [
             'sendMessage', 'sendPhoto', 'sendVideo', 'sendAudio', 'sendDocument', 'sendAnimation',
-            'editMessageText', 'editMessageCaption', 'editMessageMedia', 'deleteMessage',
+            'editMessageText', 'editMessageCaption', 'editMessageMedia', 'editMessageReplyMarkup', 'deleteMessage',
             'answerCallbackQuery', 'sendInvoice',
         ];
 
@@ -267,6 +267,10 @@ final class MockHttpClient implements HttpClientInterface
                 'first_name' => 'MockBot',
                 'username' => 'mock_bot',
             ];
+        }
+
+        if ($endpoint === 'getUpdates') {
+            return [];
         }
 
         return true;

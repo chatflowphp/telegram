@@ -176,6 +176,29 @@ final class TelegramPublisher
         return $this->singleResult($chatId, 'editMessageCaption', $response);
     }
 
+    /**
+     * Edits only the reply markup of a message.
+     *
+     * @param array<string, mixed>|string|null $replyMarkup Array for inline_keyboard, encoded JSON string, or null to remove buttons
+     */
+    public function editReplyMarkup(
+        string|int $chatId,
+        int $messageId,
+        array|string|null $replyMarkup = null,
+    ): TelegramDeliveryResult {
+        $markup = \is_array($replyMarkup)
+            ? json_encode($replyMarkup, JSON_THROW_ON_ERROR)
+            : $replyMarkup;
+
+        $response = $this->call(fn(): mixed => $this->api->editMessageReplyMarkup([
+            'chat_id' => $chatId,
+            'message_id' => $messageId,
+            'reply_markup' => $markup ?? json_encode(['inline_keyboard' => []], JSON_THROW_ON_ERROR),
+        ]));
+
+        return $this->singleResult($chatId, 'editMessageReplyMarkup', $response);
+    }
+
     public function deleteMessage(string|int $chatId, int $messageId): TelegramDeliveryResult
     {
         $response = $this->call(fn(): mixed => $this->api->deleteMessage([

@@ -8,6 +8,7 @@ use ChatFlow\Core\Context;
 use ChatFlow\Outbound\RenderEffect;
 use ChatFlow\Outbound\ReplyEffect;
 use ChatFlow\View\View;
+use Telegram\Bot\Api;
 
 final class TelegramContext
 {
@@ -83,5 +84,54 @@ final class TelegramContext
         }
 
         return $update;
+    }
+
+    public function publisher(): ?TelegramPublisher
+    {
+        $container = $this->context->getContainer();
+        if ($container->has(TelegramPublisher::class)) {
+            $publisher = $container->get(TelegramPublisher::class);
+            if ($publisher instanceof TelegramPublisher) {
+                return $publisher;
+            }
+        }
+
+        return null;
+    }
+
+    public function api(): ?Api
+    {
+        $container = $this->context->getContainer();
+        if ($container->has(Api::class)) {
+            $api = $container->get(Api::class);
+            if ($api instanceof Api) {
+                return $api;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Edits the reply markup of a message, defaulting to the current message in context.
+     *
+     * @param array<string, mixed>|string|null $replyMarkup Array for inline_keyboard, encoded JSON string, or null to remove buttons
+     */
+    public function editReplyMarkup(array|string|null $replyMarkup = null, ?int $messageId = null): ?TelegramDeliveryResult
+    {
+        $targetMessageId = $messageId ?? $this->getMessageId();
+        if ($targetMessageId === null) {
+            return null;
+        }
+
+        return $this->publisher()?->editReplyMarkup($this->getChatId(), $targetMessageId, $replyMarkup);
+    }
+
+    /**
+     * Clears all inline keyboard buttons from the message.
+     */
+    public function removeButtons(?int $messageId = null): ?TelegramDeliveryResult
+    {
+        return $this->editReplyMarkup(null, $messageId);
     }
 }
