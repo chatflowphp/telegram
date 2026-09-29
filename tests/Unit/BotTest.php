@@ -197,6 +197,34 @@ final class BotTest extends TestCase
         ]);
     }
 
+    public function testStartPollingInvokesOnTickAndStopsWhenCallbackReturnsFalse(): void
+    {
+        $bot = self::bot();
+        $ticks = 0;
+
+        $bot->startPolling(timeout: 0, onTick: static function (Bot $currentBot) use (&$ticks): bool {
+            $ticks++;
+            return $ticks < 3;
+        });
+
+        self::assertSame(3, $ticks);
+        self::assertFalse($bot->isPolling());
+    }
+
+    public function testStartPollingCanBeStoppedExplicitly(): void
+    {
+        $bot = self::bot();
+        $ticks = 0;
+
+        $bot->startPolling(timeout: 0, onTick: static function (Bot $currentBot) use (&$ticks): void {
+            $ticks++;
+            $currentBot->stopPolling();
+        });
+
+        self::assertSame(1, $ticks);
+        self::assertFalse($bot->isPolling());
+    }
+
     /**
      * @return array<string, mixed>
      */

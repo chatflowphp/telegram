@@ -89,6 +89,8 @@ class Bot implements FlowRuntimeInterface
 
     private ?Application $application = null;
 
+    private bool $isPolling = false;
+
     /**
      * @var list<\ChatFlow\Middleware\MiddlewareInterface|class-string<\ChatFlow\Middleware\MiddlewareInterface>>
      */
@@ -467,27 +469,30 @@ class Bot implements FlowRuntimeInterface
     }
 
     /**
+     * Runs the long polling loop.
+     *
      * @param list<string> $allowedUpdates
+     * @param (callable(self): (bool|void))|null $onTick Callback invoked on each polling iteration; return false to stop polling
      *
      * @throws TelegramSDKException
      */
-    public function startPolling(int $timeout = 30, array $allowedUpdates = []): void
+    public function startPolling(int $timeout = 30, array $allowedUpdates = [], ?callable $onTick = null): void
     {
         $this->api->deleteWebhook();
 
         $offset = 0;
-        $running = true;
+        $this->isPolling = true;
 
         if (\extension_loaded('pcntl')) {
-            pcntl_signal(SIGINT, static function () use (&$running): void {
-                $running = false;
+            pcntl_signal(SIGINT, function (): void {
+                $this->isPolling = false;
             });
-            pcntl_signal(SIGTERM, static function () use (&$running): void {
-                $running = false;
+            pcntl_signal(SIGTERM, function (): void {
+                $this->isPolling = false;
             });
         }
 
-        while ($running) {
+        while ($this->isPolling) {
             if (\extension_loaded('pcntl')) {
                 pcntl_signal_dispatch();
             }
@@ -503,6 +508,11 @@ class Bot implements FlowRuntimeInterface
                     $updateId = $update['update_id'] ?? 0;
                     $offset = (\is_int($updateId) ? $updateId : 0) + 1;
                     $this->handle($update);
+                }
+
+                if ($onTick !== null && $onTick($this) === false) {
+                    $this->isPolling = false;
+                    break;
                 }
             } catch (Throwable $e) {
                 $this->logger->error('Error in polling loop', ['exception' => $e::class, 'message' => $e->getMessage()]);
@@ -618,6 +628,16 @@ class Bot implements FlowRuntimeInterface
     public function getMiddlewares(): array
     {
         return $this->middlewares;
+    }
+
+    public function isPolling(): bool
+    {
+        return $this->isPolling;
+    }
+
+    public function stopPolling(): void
+    {
+        $this->isPolling = false;
     }
 
     // -- internals -----------------------------------------------------------------------------
@@ -798,7 +818,7 @@ class Bot implements FlowRuntimeInterface
      *
      * @return list<array<string, mixed>>
      */
-    private function preparePollingUpdates(iterable $updates): array
+    protected function preparePollingUpdates(iterable $updates): array
     {
         $prepared = [];
         $mediaGroups = [];
